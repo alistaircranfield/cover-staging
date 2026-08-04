@@ -100,7 +100,12 @@ const SEED = `(function(){
     log: [
       { t: now, who:"AJC", kind:"manual", on:T, msg:"Cover swap " + T + ": Baiou to Whitehouse" },
       { t: now, who:"sync", kind:"auto",  on:T, msg:"Cover worked out again for " + T },
-      { t: now, who:"AJC", kind:"manual", on:null, msg:"Editing password set" }
+      { t: now, who:"AJC", kind:"manual", on:null, msg:"Editing password set" },
+      /* What the Optima sync writes since 6 Aug: the person and the shift, not a count. */
+      { t: now, who:"sync", kind:"auto", on:T, msg:"Kate Bailey on the rota, LD",
+        d:{ act:"on", subj:"Kate Bailey", to:"LD" } },
+      { t: now, who:"sync", kind:"auto", on:T, msg:"Sam Aziz moved from SD to LD",
+        d:{ act:"shift", subj:"Sam Aziz", from:"SD", to:"LD" } }
     ] };
   cdata.days[T] = { auto:{ A:"AB" }, cur:{ A:"AB", oncall:"NW", cod:"AB" } };
   showJun = true;
@@ -286,6 +291,49 @@ const SEED = `(function(){
      w.eval("showTab('rota'); renderRota(); document.getElementById('weekGrid').textContent").indexOf("16:00") < 0);
   ok("every toolbar button but the name is an icon",
      w.eval("['btnJuniors','btnKey'].every(function(id){ var b = document.getElementById(id); return b && b.querySelector('svg') && !b.textContent.trim(); })"));
+
+  /* Ali, 6 Aug: "Optima sync: 1 added ... this is a useless change log. need to know who the
+     person is and which pod theyre allocated to!" These two rows are what replaced it. A row
+     that draws the name but drops the shift code would look fine and still answer nothing, so
+     check the cells, not just that nothing threw. */
+  console.log("\n-- what the sync writes --");
+  /* The UI section above swapped cdata for a clean store, so put a log back. */
+  w.eval("(function(){ const now = new Date().toISOString(), T = new Date().toISOString().slice(0,10);" +
+    "cdata.log = [" +
+    "{ t: now, who:'sync', kind:'auto', on:T, msg:'Kate Bailey on the rota, LD'," +
+    "  d:{ act:'on', subj:'Kate Bailey', to:'LD' } }," +
+    "{ t: now, who:'sync', kind:'auto', on:T, msg:'Sam Aziz moved from SD to LD'," +
+    "  d:{ act:'shift', subj:'Sam Aziz', from:'SD', to:'LD' } }]; })()");
+  w.eval("logBy='made'; logFilter='all'; showTab('log'); renderLog();");
+  const syncRow = w.eval("(function(){ const rows=[...document.querySelectorAll('#logBox tr.logrow')];" +
+    "const r=rows.find(x=>x.textContent.indexOf('Kate Bailey')>=0);" +
+    "return r ? [...r.children].map(c=>c.textContent.trim()).join('|') : 'NOT DRAWN'; })()");
+  ok("a person joining the rota is named, with their shift",
+     /Kate Bailey/.test(syncRow) && /LD/.test(syncRow), syncRow);
+  const shiftRow = w.eval("(function(){ const rows=[...document.querySelectorAll('#logBox tr.logrow')];" +
+    "const r=rows.find(x=>x.textContent.indexOf('Sam Aziz')>=0);" +
+    "return r ? [...r.children].map(c=>c.textContent.trim()).join('|') : 'NOT DRAWN'; })()");
+  ok("a shift change shows both the old code and the new",
+     /SD/.test(shiftRow) && /LD/.test(shiftRow), shiftRow);
+  /* And the pod. A freshly allocated day is one row that opens to show who went where. */
+  w.eval("(function(){ const now=new Date().toISOString(), T=new Date().toISOString().slice(0,10);" +
+    "cdata.log.push({ t:now, who:'sync', kind:'auto', on:T," +
+    " msg:'Auto-allocated ' + T + ' — nobody had touched it'," +
+    " d:{ act:'fix', label:'Day allocated', n:2, kids:[{subj:'Kate Bailey',to:'C'},{subj:'Sam Aziz',to:'A'}] } }); })()");
+  w.eval("renderLog();");
+  ok("an auto-allocated day says allocated, not tidied",
+     w.eval("document.getElementById('logBox').textContent").indexOf("Day allocated") >= 0);
+  ok("and counts placements rather than moves",
+     w.eval("document.getElementById('logBox').textContent").indexOf("2 placed") >= 0);
+  ok("opening it shows who went into which pod",
+     w.eval("(function(){ const b=[...document.querySelectorAll('#logBox button')].find(x=>x.textContent==='\u25b8');" +
+            "if(!b) return 'no expander'; b.onclick();" +
+            "return document.getElementById('logBox').textContent; })()").indexOf("Kate Bailey") >= 0);
+
+  ok("neither falls back to the wide plain-text row",
+     w.eval("[...document.querySelectorAll('#logBox tr.logrow')].filter(function(r){" +
+            "return /Kate Bailey|Sam Aziz/.test(r.textContent) && " +
+            "[...r.children].some(function(c){ return c.colSpan > 1; }); }).length") === 0);
 
   ok("no errors across the whole run", errors.length === 0, errors.slice(0, 3).join(" | "));
 
