@@ -38,6 +38,14 @@ function inlineAssets(html) {
       ? html.replace(/<link rel="stylesheet" href="core\.css[^"]*">/, "<style>" + body + "</style>")
       : html.replace(/<script src="core\.js[^"]*"><\/script>/, "<script>" + body + "</script>");
   }
+  /* k.js carries the flow URLs and is served alongside the page, so jsdom never fetches it and
+     the page comes up with no keys at all — which means Setup shows its "connect the store"
+     screen and none of the real page is ever tested. Stand in a fake one. The URLs are never
+     called: every fetch is stubbed to reject, and postLive is replaced before any save. */
+  html = html.replace(/<script src="k\.js[^"]*"><\/script>/,
+    '<script>window.__POD_KEYS = { r: "https://example.invalid/resident-read", ' +
+    'cv: "https://example.invalid/cover-read", cvs: "https://example.invalid/cover-save" };' +
+    'window.__POD_TEST = false;</script>');
   return html;
 }
 
@@ -82,12 +90,19 @@ const SEED = `(function(){
   data.weeks[K].roster[T] = { r1:{code:"LD",kind:"day"}, r2:{code:"SD",kind:"day"} };
   curWeek = K;
   const now = new Date().toISOString();
-  cdata = { v:1, adminPin:"", rotaPin:"", pins:{}, admins:["AJC"], jobPlans:{}, skills:{}, tariff:{},
-    days: {}, log: [
-      { t: now, who:"AJC", kind:"manual", on:T, msg:"Consultant swap " + T + ": Baiou to Whitehouse" },
-      { t: now, who:"sync", kind:"auto",  on:T, msg:"Consultant allocation recomputed" },
-      { t: now, who:"AJC", kind:"manual", on:null, msg:"Admin PIN set" }
+  /* A COVER store, in the shape the carve leaves behind: the allocation at the top level and
+     not one key of the consultant rota's paperwork. If this seed ever needs a jobPlans or a
+     tariff to make the page draw, the split has come undone. */
+  cdata = { v:"cover-1", pw:"", days:{}, map:{ AB:"Anas Baiou", NW:"Nick Whitehouse" },
+    fair:{ AB:{ab:10,cd:8} }, window:{ AB:{ab:1,cd:0} },
+    source:{ name:"Consultant Rota Aug.xlsx", modified:"2026-08-01T09:00:00Z",
+             sheetUntil:"2026-11-08", unknownInitials:["ZZ"] },
+    log: [
+      { t: now, who:"AJC", kind:"manual", on:T, msg:"Cover swap " + T + ": Baiou to Whitehouse" },
+      { t: now, who:"sync", kind:"auto",  on:T, msg:"Cover worked out again for " + T },
+      { t: now, who:"AJC", kind:"manual", on:null, msg:"Editing password set" }
     ] };
+  cdata.days[T] = { auto:{ A:"AB" }, cur:{ A:"AB", oncall:"NW", cod:"AB" } };
   showJun = true;
   return "seeded";
 })()`;
@@ -104,7 +119,7 @@ const SEED = `(function(){
 
   /* Every tab, including the ones behind the staff password. A page that throws here would have
      been invisible to the rule suite. */
-  const TABS = ["rota", "fair", "log", "admin"];
+  const TABS = ["rota", "fair", "log", "setup"];
   for (const t of TABS) {
     const before = errors.length;
     let threw = "";
@@ -149,6 +164,128 @@ const SEED = `(function(){
      w.eval("document.querySelectorAll('#weekGrid .rpill').length") + " pills");
   ok("hover profile card can be built",
      w.eval("(function(){ try { showCard(document.querySelector('.rpill') || document.body, 'r1'); return document.getElementById('hovercard').textContent.indexOf('Alice Ring') >= 0; } catch(e){ return 'ERR ' + e.message; } })()") === true);
+
+  /* ---- the split (4 Aug 2026) -------------------------------------------------------------
+     Cover reads the consultant rota workbook and the resident rota, and nothing else. These
+     check the page cannot quietly grow a third appetite: that it draws from a cover-shaped
+     store, that it never writes the paperwork back, and that it says so if it meets a store
+     the carve has not reached. */
+  console.log("\n-- the Cover/Consultant Rota split --");
+
+  ok("Setup names both sources",
+     (function(){ const t = w.eval("showTab('setup'); renderSetup(); document.getElementById('setupBox').textContent");
+       return t.indexOf("Consultant Rota Aug.xlsx") >= 0 && t.indexOf("Resident rota") >= 0; })());
+  ok("Setup offers one editing password",
+     w.eval("document.getElementById('setupBox').textContent").indexOf("Editing password") >= 0);
+  ok("Setup shows no job plans, tariff or list skills",
+     (function(){ const t = w.eval("document.getElementById('setupBox').textContent").toLowerCase();
+       return !/job plan|tariff|list skills/.test(t); })());
+  ok("the job-plan gate is gone from the page",
+     w.eval("typeof myFigures") === "undefined" || w.eval("typeof myFigures") === "undefined");
+  ok("Fairness draws without a My figures button",
+     w.eval("showTab('fair'); renderFair(); document.querySelectorAll('#fairBox .mybtn').length") === 0);
+  ok("Fairness still draws its rows",
+     w.eval("document.querySelectorAll('#fairBox tr').length") > 1);
+
+  /* What gets written. postLive is replaced so the payload can be read without a network. */
+  w.eval("window.__sent = null; postLive = function(u, p){ window.__sent = p; return Promise.resolve(true); };");
+  const sent = await (async () => {
+    w.eval("saveC()");
+    await new Promise(r => setTimeout(r, 50));
+    return w.eval("window.__sent");
+  })();
+  ok("a save actually produced a payload", !!sent, String(sent).slice(0, 40));
+  if (sent) {
+    const o = JSON.parse(sent);
+    ok("what is saved holds the allocation at the top level", !!o.days && !o.consRota);
+    for (const k of ["jobPlans", "skills", "tariff", "admins", "pins", "adminPin"])
+      ok("what is saved holds no " + k, o[k] === undefined);
+  }
+
+  /* An uncarved store: the page must leave the paperwork alone AND say so, rather than
+     silently dropping it — there is no undo for a job plan nobody backed up. */
+  w.eval("cdata.jobPlans = { AB: { weeklyPA: '10' } }; cdata.adminPin = 'zzz'; window.__sent = null; saveC();");
+  await new Promise(r => setTimeout(r, 50));
+  const sent2 = w.eval("window.__sent");
+  ok("an uncarved store keeps its paperwork through a save",
+     !!sent2 && JSON.parse(sent2).jobPlans && JSON.parse(sent2).jobPlans.AB.weeklyPA === "10");
+  ok("and Setup says the carve has not been run",
+     w.eval("showTab('setup'); renderSetup(); document.getElementById('setupBox').textContent")
+       .indexOf("has not been carved") >= 0);
+
+  /* Backwards compatibility: a store still using the old consRota wrapper must still draw. */
+  w.eval("cdata = { v:1, consRota:{ days:{}, map:{ AB:'Anas Baiou' }, fair:{}, window:{}, source:{} }, rotaPin:'abc' };" +
+         "for (const k of ['days','map','fair','window','source']) if (cdata[k]==null && cdata.consRota[k]!=null) cdata[k]=cdata.consRota[k];" +
+         "delete cdata.consRota; if (!cdata.pw && cdata.rotaPin) cdata.pw = cdata.rotaPin;");
+  ok("an old wrapped store is unwrapped on the way in",
+     w.eval("!!cdata.map && !cdata.consRota && cdata.pw === 'abc'"));
+
+  /* ---- Edit / Done, the Key, and the toolbar (4 Aug) ---------------------------------------
+     The page used to ask for the password at the moment of the first change. It now asks up
+     front, the same way the resident board does, so these check the lock is real: that a click
+     on a cell while reading changes nothing, and that Done puts the lock back. */
+  console.log("\n-- editing, the Key and the toolbar --");
+
+  /* The split section above deliberately left cdata as a half-migrated store to prove the
+     unwrapping. Put a whole one back before testing anything about the UI, or these assertions
+     are really testing the leftovers of the previous test. */
+  w.eval("cdata = { v:'cover-1', pw:'', days:{}, log:[], fair:{}, window:{}, source:{}," +
+         "map:{ AB:'Anas Baiou', NW:'Nick Whitehouse', TF:'Timothy Fudge' } };" +
+         "localStorage.removeItem('consEditor'); EDIT_MODE = false;" +
+         "document.body.classList.remove('editing'); renderAll();");
+
+  ok("the page opens read-only", w.eval("EDIT_MODE === false && !document.body.classList.contains('editing')"));
+  ok("Edit and Done are both present", w.eval("!!document.getElementById('btnEdit') && !!document.getElementById('btnDone')"));
+  ok("a cell click while reading changes nothing",
+     w.eval("(function(){ const before = JSON.stringify(cdata.days); requireEdit(function(){ cdata.days.BROKEN = 1; }); return JSON.stringify(cdata.days) === before; })()"));
+
+  w.eval("rotaOpen = true; localStorage.setItem('consEditor','AB'); enterEdit();");
+  await new Promise(r => setTimeout(r, 30));
+  ok("Edit unlocks the page", w.eval("EDIT_MODE === true && document.body.classList.contains('editing')"));
+  ok("and now an edit is allowed",
+     w.eval("(function(){ let ran = false; requireEdit(function(){ ran = true; }); return ran; })()"));
+  w.eval("leaveEdit();");
+  ok("Done locks it again", w.eval("EDIT_MODE === false && !document.body.classList.contains('editing')"));
+
+  /* Who's editing: a typeable list of consultants, and no residents in it. The store's map is
+     the consultant list, so a resident cannot appear even by accident — but the seed puts
+     residents on the resident side of the fixture, so this is worth asserting rather than
+     assuming. */
+  w.eval("pickWho();");
+  await new Promise(r => setTimeout(r, 30));
+  ok("the who's-editing picker is typeable, not a dropdown",
+     w.eval("!!document.querySelector('#whoOverlay input[list]')"));
+  ok("it offers the consultants",
+     w.eval("document.querySelectorAll('#whoOverlay datalist option').length") >= 2);
+  ok("and no residents",
+     w.eval("[...document.querySelectorAll('#whoOverlay datalist option')].map(o=>o.value).join('|')")
+       .indexOf("Alice Ring") < 0);
+  ok("typing initials is enough to be recognised",
+     w.eval("(function(){ const i = document.querySelector('#whoOverlay input[list]'); i.value = 'nw';" +
+            "document.querySelector('#whoOverlay button').click();" +
+            "return localStorage.getItem('consEditor'); })()") === "NW");
+
+  w.eval("keyDialog();");
+  await new Promise(r => setTimeout(r, 30));
+  const keyTxt = w.eval("document.querySelector('#whoOverlay .box').textContent");
+  ok("the Key opens and explains the grid",
+     /Pods A and B/.test(keyTxt) && /Consultant of the day/.test(keyTxt) && /Fairfield/.test(keyTxt),
+     keyTxt.slice(0, 60));
+  ok("the Key covers the residents row too", /resident/i.test(keyTxt));
+  /* The Key must borrow the board's pod colours, never restate them. Both pages load one
+     byte-identical core.css, so a swatch written as a literal hex is a colour that will drift
+     the first time the palette is touched — and the two pages sitting side by side in different
+     blues is exactly the sort of thing that gets noticed and cannot be explained. */
+  ok("the Key's swatches use the shared pod variables, not literal colours",
+     (function(){ const h = w.eval("document.querySelector('#whoOverlay .box').innerHTML");
+       return /var\(--podA\)/.test(h) && /var\(--podEb\)/.test(h) && !/#[0-9a-f]{6}/i.test(h); })());
+  w.eval("document.querySelectorAll('#whoOverlay').forEach(function(o){ o.remove(); });");
+
+  /* Ali, 4 Aug: "16:00–09:00 · 24h wknd — Not neeed, people know this." */
+  ok("the on-call column no longer spells out the hours",
+     w.eval("showTab('rota'); renderRota(); document.getElementById('weekGrid').textContent").indexOf("16:00") < 0);
+  ok("every toolbar button but the name is an icon",
+     w.eval("['btnJuniors','btnKey'].every(function(id){ var b = document.getElementById(id); return b && b.querySelector('svg') && !b.textContent.trim(); })"));
 
   ok("no errors across the whole run", errors.length === 0, errors.slice(0, 3).join(" | "));
 
