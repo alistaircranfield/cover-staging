@@ -451,6 +451,9 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
        !win.document.querySelector("#fairBox .mybtn"));
     ok("and the per-consultant PIN gate has gone with it",
        !/function myFigures|cdata\.pins/.test(fs.readFileSync(PAGE, "utf8")));
+    /* Including the styling. A dead CSS class is how a removed feature comes back: someone
+       finds .mybtn, assumes it is used, and wires a button to it. */
+    ok("and its styling too", !/mybtn/.test(fs.readFileSync(PAGE, "utf8")));
   }
 
   console.log("Transposed grid (job d)");
