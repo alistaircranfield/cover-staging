@@ -1,0 +1,98 @@
+{
+ "generated": "2026-08-04T18:57:48.105902+00:00",
+ "build": "9e62517",
+ "liveBuild": "98f64d5",
+ "count": 15,
+ "changes": [
+  {
+   "sha": "9e62517",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:57:32+01:00",
+   "msg": "Add files via upload"
+  },
+  {
+   "sha": "13f7f3e",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:50:25+01:00",
+   "msg": "Edit needs a name not a password; test bar and sandbox; say when the rota is stale"
+  },
+  {
+   "sha": "855e17f",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:30:20+01:00",
+   "msg": "Sync rows: shift pill on the name, pod in To. No such thing as no room"
+  },
+  {
+   "sha": "6b15423",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:21:29+01:00",
+   "msg": "Check the sync rows draw a name, a shift and a pod"
+  },
+  {
+   "sha": "6786e7c",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:20:46+01:00",
+   "msg": "Same core.js as the resident board \u2014 sync rows name the person"
+  },
+  {
+   "sha": "eb6756f",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:09:30+01:00",
+   "msg": "The browser tab said Consultant Pods too \u2014 it says Cover now"
+  },
+  {
+   "sha": "02cf562",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:07:11+01:00",
+   "msg": "Also assert the dead My figures styling is gone, not just the code"
+  },
+  {
+   "sha": "ff36e0c",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:06:28+01:00",
+   "msg": "Drop the dead .mybtn style \u2014 nothing uses it now My figures has gone"
+  },
+  {
+   "sha": "50225f3",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:05:20+01:00",
+   "msg": "Tests for the split, the Edit gate and the Key; consultant-tests renamed to cover-tests"
+  },
+  {
+   "sha": "4497848",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T19:04:00+01:00",
+   "msg": "Cover is only cover: the consultant rota paperwork moves out"
+  },
+  {
+   "sha": "e1c0d02",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T17:43:17+01:00",
+   "msg": "Add files via upload"
+  },
+  {
+   "sha": "ab1f402",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T17:23:08+01:00",
+   "msg": "Add files via upload"
+  },
+  {
+   "sha": "d05fd3c",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T17:15:16+01:00",
+   "msg": "Add files via upload"
+  },
+  {
+   "sha": "e708292",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T16:43:42+01:00",
+   "msg": "Add files via upload"
+  },
+  {
+   "sha": "071187c",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T09:58:23+01:00",
+   "msg": "Add files via upload"
+  }
+ ]
+}
