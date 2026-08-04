@@ -30,6 +30,17 @@ aside .aside-spacer{flex:1}
 .hbtn{background:var(--ink);color:#fff;border:0;border-radius:12px;padding:.52rem 1rem;font-weight:600;font-size:.82rem;cursor:pointer;font-family:inherit}
 .hbtn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
 .hbtn:hover{filter:brightness(.95)}
+/* Lifted from the resident board unchanged. The two sites are meant to be the same thing with
+   different contents, and every place they were allowed to differ "just for now" is a place
+   somebody has since had to be told about. */
+#testbar{position:fixed;left:0;right:0;bottom:0;z-index:200;background:#8a5a00;color:#fff;display:flex;align-items:center;gap:.8rem;padding:.5rem .9rem calc(.5rem + env(safe-area-inset-bottom));font-size:.78rem}
+#testbar b{background:#fff;color:#8a5a00;border-radius:5px;padding:.1rem .4rem;font-size:.62rem;letter-spacing:.08em}
+#testbar span{opacity:.92;flex:1;min-width:0}
+#testbar .hbtn{background:rgba(255,255,255,.16);color:#fff;border:0;flex-shrink:0}
+body.testmode main{padding-bottom:3.4rem}
+.stalebar{background:#fdf4f6;border:1px solid var(--podEb);border-radius:10px;padding:.7rem .9rem;
+  margin:0 0 .8rem;font-size:.85rem;line-height:1.5;color:var(--ink)}
+.stalebar .why{display:block;margin-top:.4rem;font-size:.75rem;color:var(--muted)}
 .hbtn.hicon{padding:.42rem;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center}
 .hbtn.hicon svg{width:19px;height:19px;display:block}
 .hbtn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -189,6 +200,10 @@ body.teamopen #teamPanel{display:block}
 </div>
 </div>
 <div id="toast"></div>
+<div id="testbar" style="display:none">
+  <b>TEST SITE</b><span>Nothing here changes the real cover.</span>
+  <button class="hbtn ghost" id="btnTestReset" title="Throw away the changes made here and re-read the live cover">Reload live cover</button>
+</div>
 <div id="hovercard"></div>
 <script src="core.js?v=20260731-02"></script>
 <script src="k.js?v=20260804-02"></script>
@@ -224,12 +239,22 @@ try {
    caused every real bug on this project. All writes now go through one door. Do not add another
    fetch to SAVE or COVER_SAVE; call postLive. */
 const TESTMODE = window.__POD_TEST === true;
+const TEST_KEY = "coverTestStore";
+/* On the test site, saves go to THIS BROWSER and nowhere else. Until 6 Aug they went nowhere at
+   all — the page said "saved nowhere" and threw the change away, which meant staging could not
+   be used to try anything: you made a change, it vanished, and you learned nothing. The resident
+   board has always kept a sandbox copy in localStorage; this is the same thing, so the two sites
+   behave the same way. "Reload live cover" throws it away again. */
 async function postLive(url, payload){
-  if (TESTMODE) { toast("Test copy — saved nowhere; the live rota is untouched"); return true; }
+  if (TESTMODE) {
+    try { localStorage.setItem(TEST_KEY, payload); } catch(e){}
+    toast("Saved on this test site only — the live cover is untouched");
+    return true;
+  }
   await fetch(url, { method: "POST", mode: "no-cors", body: new Blob([payload], { type: "application/json" }) });
   return true;
 }
-let data = null, cdata = null, showJun = false, curWeek = null, rotaOpen = false, EDIT_MODE = false;
+let data = null, cdata = null, showJun = false, curWeek = null, EDIT_MODE = false;
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const toast = m => { const t = $("#toast"); t.textContent = m; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3000); };
@@ -277,15 +302,22 @@ async function load(){
    Nothing else. A key outside that list means the consultant rota paperwork is being written
    back in and the split is unravelling. */
 const COVER_ONLY = ["days","map","fair","window","source","pw","log","v","savedAt","savedBy"];
+/* pw is on that list so a carve that moved the old rota-master PIN in here is not thrown away,
+   but nothing on this page reads it: editing needs a name, not a password (6 Aug). */
 function seedC(){
-  return { v: "cover-1", pw: "", days: {}, map: {}, fair: {}, window: {}, source: {}, log: [] };
+  return { v: "cover-1", days: {}, map: {}, fair: {}, window: {}, source: {}, log: [] };
 }
 async function loadC(){
   if (!COVER_READ){ cdata = null; return; }
   try {
     const r = await fetch(COVER_READ, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", cache: "no-store" });
     if (!r.ok) throw 0;
-    const j = await r.json();
+    let j = await r.json();
+    /* The sandbox copy wins on the test site, so a change made here survives a refresh the way
+       it would on the real thing. */
+    if (TESTMODE) {
+      try { const t = localStorage.getItem(TEST_KEY); if (t) j = JSON.parse(t); } catch(e){}
+    }
     cdata = (j && j.v) ? j : seedC();
     /* A store carved before this page was updated, or one the carve hasn't reached yet: take
        the allocation out of the old wrapper so the page draws rather than showing nothing.
@@ -295,7 +327,6 @@ async function loadC(){
         if (cdata[k] == null && cdata.consRota[k] != null) cdata[k] = cdata.consRota[k];
       delete cdata.consRota;
     }
-    if (!cdata.pw && cdata.rotaPin) cdata.pw = cdata.rotaPin;
   } catch(e){ cdata = seedC(); }
 }
 /* Anything in the store that is not on cover's list. Today that means the consultant rota's
@@ -371,9 +402,19 @@ function renderSetup(){
   /* Where the data comes from. Two sources, named, so that "why is this person missing?" is
      answerable from the page instead of from the repository. */
   const src = (CR() || {}).source || {};
+  /* "not fetched yet" while the page was full of allocations was a fair thing to be cross
+     about (Ali, 6 Aug): the rota HAD been read, just not from SharePoint. The fetch has never
+     succeeded, so what everything here was built from is the copy of the workbook committed in
+     the repo. Saying which is the difference between "something is wrong" and "here is what is
+     wrong". */
+  const fetched = !!src.name;
+  const rotaLine = fetched
+    ? esc(src.name) + (src.modified ? " <span class='inipill'>" + esc(String(src.modified).slice(0, 10)) + "</span>" : "")
+    : "<b>the copy kept in the repo</b><div style='font-size:.78rem;color:var(--muted);margin-top:.15rem'>" +
+      "The SharePoint fetch has never succeeded, so every allocation below was worked out from " +
+      "that copy rather than the current rota.</div>";
   h += "<div class='card'><h2>Where this comes from</h2><table class='plain'>" +
-    "<tr><td>Consultant rota</td><td>" + esc(src.name || "not fetched yet") +
-      (src.modified ? " <span class='inipill'>" + esc(String(src.modified).slice(0, 10)) + "</span>" : "") + "</td></tr>" +
+    "<tr><td>Consultant rota</td><td>" + rotaLine + "</td></tr>" +
     "<tr><td>Read to</td><td>" + esc(src.sheetUntil || "—") + "</td></tr>" +
     "<tr><td>Resident rota</td><td>" + (data ? Object.keys(data.weeks || {}).length + " week(s), read-only" : "not loaded") + "</td></tr>" +
     "<tr><td>Cover last worked out</td><td>" + esc((cdata && cdata.savedAt) ? shortDate(String(cdata.savedAt).slice(0, 10)) : "—") +
@@ -385,35 +426,11 @@ function renderSetup(){
     h += "<div class='card'><h2>Initials the rota uses that we don't know</h2><p style='font-size:.85rem'>" +
       unknown.map(esc).join(", ") + "</p></div>";
 
-  h += "<div class='card'><h2>Editing password</h2>" +
-    "<p style='font-size:.85rem'>One password for the whole rota team. It unlocks changing who covers what.</p>" +
-    "<input type='password' id='pwNew' placeholder='New password' style='width:100%;max-width:280px;margin-bottom:.5rem'>" +
-    "<input type='password' id='pwNew2' placeholder='Again' style='width:100%;max-width:280px;margin-bottom:.6rem'>" +
-    "<button class='btn' id='pwGo'>" + ((cdata && cdata.pw) ? "Change it" : "Set it") + "</button>" +
-    "<div id='pwMsg' style='font-size:.78rem;color:var(--red);min-height:1em;margin-top:.3rem'></div></div>";
-
-  /* The one thing that would mean the split had not actually happened. Loud, on the page,
-     rather than a line in a console nobody opens. */
-  const stray = strayPaperwork();
-  if (stray.length)
-    h += "<div class='card' style='border-color:var(--red)'><h2>This store has not been carved yet</h2>" +
-      "<p style='font-size:.85rem'>It still holds " + stray.map(esc).join(", ") +
-      " — the consultant rota's paperwork, which belongs in its own file. Cover leaves it alone " +
-      "and will not delete it. Run <b>split_stores.py</b> to move it out.</p></div>";
+  /* The "Editing password" card was here. Editing needs no password any more, and the rota-team
+     password that guards this page is the board's own — set on the resident board, shared, not
+     duplicated here. Two places to change one password is how they end up different. */
 
   box.innerHTML = h;
-
-  $("#pwGo").onclick = async () => {
-    const a = $("#pwNew").value, b = $("#pwNew2").value;
-    if (!a){ $("#pwMsg").textContent = "Type a password"; return; }
-    if (a !== b){ $("#pwMsg").textContent = "They don't match"; return; }
-    cdata.pw = await sha(a);
-    clog("Editing password changed");
-    await saveC();
-    rotaOpen = true;
-    $("#pwMsg").style.color = "var(--muted)";
-    $("#pwMsg").textContent = "Done.";
-  };
 }
 
 function consList(){
@@ -581,6 +598,20 @@ function renderRota(){
     h += "<td data-date='" + d + "'>" + cellHTML(cons[d], "fgh", d) + "</td></tr>";
   });
   h += "</table>";
+  /* If the cover on screen was worked out from anything other than the live rota, that goes
+     ABOVE the grid, not on a settings page nobody opens. Every name below is only as right as
+     the workbook it came from, and a board built on a copy from last week looks identical to
+     one built this morning — which is exactly how this went unnoticed for a fortnight. */
+  const _src = (CR() || {}).source || {};
+  if (!_src.name) {
+    const when = _src.sheetUntil ? " It reads to " + fmt(_src.sheetUntil) + "." : "";
+    h = "<div class='stalebar'><b>This cover was not worked out from the live rota.</b> " +
+        "The consultant rota could not be fetched from SharePoint, so everything below comes " +
+        "from the copy kept with the code." + when +
+        " If the rota has been republished since, these allocations are out of date." +
+        (_src.fetchError ? "<span class='why'>" + esc(_src.fetchError) + "</span>" : "") +
+        "</div>" + h;
+  }
   $("#weekGrid").innerHTML = h;
   $("#weekGrid").querySelectorAll(".cell[data-d]").forEach(c => c.onclick = () => editCell(c.dataset.d, c.dataset.k, c));
   /* Badge drag: a consultant carries their badge onto another pod and the two exchange pods.
@@ -814,41 +845,8 @@ function showCard(elp, id){
 }
 function hideCard(){ $("#hovercard").style.display = "none"; }
 
-/* Edit gate. Changing who covers what, handing over COD, on call and Fairfield are all edits to
-   the cover allocation and all ask for the same one password. Pod-to-pod swaps are not gated.
-   Until the cover store is connected there is nowhere to keep a password, so the page behaves
-   as it did before.
-
-   There were three separate secrets here on 3 Aug: a rota-master PIN, an admin PIN that also
-   opened the rota-master gate, and a PIN per consultant. Two of those guarded the consultant
-   rota's paperwork and left with it; what is left is one password for the rota team, matching
-   the resident board. Stores written before the carve keep working — loadC lifts the old
-   rota-master PIN into pw. */
-function ensureRota(cb){
-  if (rotaOpen || !cdata) { rotaOpen = true; return cb(); }
-  const first = !cdata.pw;
-  const gate = document.createElement("div"); gate.id = "whoOverlay";
-  const box = document.createElement("div"); box.className = "box";
-  const t = document.createElement("b"); t.textContent = first ? "Set the editing password" : "Editing password";
-  const inp = document.createElement("input"); inp.type = "password"; inp.placeholder = "Password"; inp.style.width = "100%"; inp.style.marginBottom = ".6rem";
-  const inp2 = document.createElement("input"); inp2.type = "password"; inp2.placeholder = "Again"; inp2.style.width = "100%"; inp2.style.marginBottom = ".6rem";
-  const ok = document.createElement("button"); ok.className = "btn"; ok.style.width = "100%"; ok.textContent = first ? "Set it" : "Unlock";
-  ok.onclick = async () => {
-    const v = inp.value; if (!v) return;
-    if (first){
-      if (v !== inp2.value){ t.textContent = "They don't match"; return; }
-      cdata.pw = await sha(v); clog("Editing password set"); await saveC();
-    } else {
-      if (await sha(v) !== cdata.pw){ t.textContent = "Wrong password"; return; }
-    }
-    rotaOpen = true; gate.remove(); cb();
-  };
-  inp.onkeydown = e => { if (e.key === "Enter" && !first) ok.click(); };
-  gate.onclick = e => { if (e.target === gate) gate.remove(); };
-  box.append(t, inp); if (first) box.append(inp2); box.append(ok);
-  gate.append(box); document.body.append(gate);
-  inp.focus();
-}
+/* ensureRota — the edit-password gate — was removed on 6 Aug. See enterEdit above: editing
+   the grid needs a name, not a password. Nothing calls it and nothing should. */
 
 function editCell(d, k, cellEl){
   requireEdit(() => {
@@ -879,13 +877,18 @@ function requireEdit(cb){
   if (EDIT_MODE) return cb();
   toast("Press Edit to change who covers what");
 }
+/* No password (Ali, 6 Aug). Swapping people between days and moving badges is ordinary
+   consultant work — the only thing needed is a name to log it under, so the change has an
+   author. The password guards the ROTA TEAM pages behind the shield (Fairness, the log, Setup),
+   which is a different question: who may look at the whole picture and change how it works.
+   I had conflated "who may edit" with "who may administer" and locked the wrong door. */
 function enterEdit(){
-  ensureRota(() => ensureWho(() => {
+  ensureWho(() => {
     EDIT_MODE = true;
     document.body.classList.add("editing");
     renderAll();
     toast("Editing — press Done when you've finished");
-  }));
+  });
 }
 function leaveEdit(){
   EDIT_MODE = false;
@@ -994,6 +997,15 @@ $("#tpBack").onclick = () => showTab("rota");
 /* Read-only until Edit is pressed. Set here rather than in the markup so a page that fails to
    boot is not left looking editable. */
 document.body.classList.remove("editing");
+if (TESTMODE) {
+  document.body.classList.add("testmode");
+  $("#testbar").style.display = "flex";
+  $("#btnTestReset").onclick = () => {
+    if (!confirm("Throw away the changes made on this test site and load a fresh copy of the live cover? Only this browser's copy is replaced — the real cover is not touched.")) return;
+    try { localStorage.removeItem(TEST_KEY); } catch(e){}
+    location.reload();
+  };
+}
 load().catch(e => { $("#weekGrid").innerHTML = "<p style='padding:1rem'>Couldn't load: " + esc(e.message || e) + "</p>"; });
 </script>
 </body>
