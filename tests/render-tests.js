@@ -180,8 +180,13 @@ const SEED = `(function(){
   ok("Setup names both sources",
      (function(){ const t = w.eval("showTab('setup'); renderSetup(); document.getElementById('setupBox').textContent");
        return t.indexOf("Consultant Rota Aug.xlsx") >= 0 && t.indexOf("Resident rota") >= 0; })());
-  ok("Setup offers one editing password",
-     w.eval("document.getElementById('setupBox').textContent").indexOf("Editing password") >= 0);
+  /* Editing needs a NAME, not a password (Ali, 6 Aug): swapping people between days and moving
+     badges is ordinary consultant work. The password guards the rota-team pages behind the
+     shield, and it is the board's own — not a second one kept here. */
+  ok("Setup no longer offers an editing password",
+     w.eval("document.getElementById('setupBox').textContent").indexOf("Editing password") < 0);
+  ok("and the edit gate is gone from the source",
+     !/function ensureRota|cdata\.pw =/.test(require("fs").readFileSync(PAGE, "utf8")));
   ok("Setup shows no job plans, tariff or list skills",
      (function(){ const t = w.eval("document.getElementById('setupBox').textContent").toLowerCase();
        return !/job plan|tariff|list skills/.test(t); })());
@@ -214,9 +219,32 @@ const SEED = `(function(){
   const sent2 = w.eval("window.__sent");
   ok("an uncarved store keeps its paperwork through a save",
      !!sent2 && JSON.parse(sent2).jobPlans && JSON.parse(sent2).jobPlans.AB.weeklyPA === "10");
-  ok("and Setup says the carve has not been run",
+  /* ...and does NOT put that on the page. The carve is one person's one-off migration task;
+     printing it on a page the whole rota team opens was noise about our own plumbing. */
+  ok("and Setup does not put the migration notice on the page",
      w.eval("showTab('setup'); renderSetup(); document.getElementById('setupBox').textContent")
-       .indexOf("has not been carved") >= 0);
+       .indexOf("carved") < 0);
+  /* The single most important thing this page can say. A board worked out from a stale copy
+     looks identical to one worked out from this morning's rota — which is how it went unnoticed
+     for a fortnight (Ali, 6 Aug: "FFS this is key to the whole thing"). */
+  ok("a board built from a stale copy says so above the grid",
+     (function(){ w.eval("cdata.source = { sheetUntil: '2026-11-08', fetchError: 'the flow returned The Pink Book.xlsx' };" +
+       "showTab('rota'); renderRota();");
+       const t = w.eval("document.getElementById('weekGrid').textContent");
+       return /not worked out from the live rota/.test(t) && /Pink Book/.test(t); })());
+  ok("and a board built from the live rota does not",
+     (function(){ w.eval("cdata.source = { name: 'Consultant Rota Aug.xlsx', sheetUntil: '2026-11-08' };" +
+       "renderRota();");
+       return !/not worked out from the live rota/.test(
+         w.eval("document.getElementById('weekGrid').textContent")); })());
+
+  ok("Setup says where the allocation actually came from",
+     w.eval("document.getElementById('setupBox').textContent").indexOf("Consultant Rota Aug.xlsx") >= 0);
+  ok("and when the workbook was never fetched, it says so instead of leaving a blank",
+     (function(){ w.eval("cdata.source = { sheetUntil: '2026-11-08' }; renderSetup();");
+       const t = w.eval("document.getElementById('setupBox').textContent");
+       w.eval("cdata.source = { name: 'Consultant Rota Aug.xlsx', sheetUntil: '2026-11-08' }; renderSetup();");
+       return /copy kept in the repo/.test(t) && /never succeeded/.test(t); })());
 
   /* Backwards compatibility: a store still using the old consRota wrapper must still draw. */
   w.eval("cdata = { v:1, consRota:{ days:{}, map:{ AB:'Anas Baiou' }, fair:{}, window:{}, source:{} }, rotaPin:'abc' };" +
@@ -244,9 +272,9 @@ const SEED = `(function(){
   ok("a cell click while reading changes nothing",
      w.eval("(function(){ const before = JSON.stringify(cdata.days); requireEdit(function(){ cdata.days.BROKEN = 1; }); return JSON.stringify(cdata.days) === before; })()"));
 
-  w.eval("rotaOpen = true; localStorage.setItem('consEditor','AB'); enterEdit();");
+  w.eval("localStorage.setItem('consEditor','AB'); enterEdit();");
   await new Promise(r => setTimeout(r, 30));
-  ok("Edit unlocks the page", w.eval("EDIT_MODE === true && document.body.classList.contains('editing')"));
+  ok("Edit unlocks the page with no password asked for", w.eval("EDIT_MODE === true && document.body.classList.contains('editing')"));
   ok("and now an edit is allowed",
      w.eval("(function(){ let ran = false; requireEdit(function(){ ran = true; }); return ran; })()"));
   w.eval("leaveEdit();");
