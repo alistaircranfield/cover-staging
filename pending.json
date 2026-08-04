@@ -1,9 +1,21 @@
 {
- "generated": "2026-08-04T18:57:48.105902+00:00",
- "build": "9e62517",
+ "generated": "2026-08-04T19:02:02.320983+00:00",
+ "build": "8366472",
  "liveBuild": "98f64d5",
- "count": 15,
+ "count": 17,
  "changes": [
+  {
+   "sha": "8366472",
+   "who": "alistaircranfield",
+   "when": "2026-08-04T20:01:47+01:00",
+   "msg": "Render tests: no editing password, stale-rota bar, sync rows"
+  },
+  {
+   "sha": "e8476a9",
+   "who": "github-actions[bot]",
+   "when": "2026-08-04T18:57:48Z",
+   "msg": "What is pending: regenerated from git, not typed"
+  },
   {
    "sha": "9e62517",
    "who": "alistaircranfield",
