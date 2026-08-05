@@ -1,9 +1,21 @@
 {
- "generated": "2026-08-04T19:02:02.320983+00:00",
- "build": "8366472",
- "liveBuild": "98f64d5",
- "count": 17,
+ "generated": "2026-08-05T10:02:27.739672+00:00",
+ "build": "219a6d8",
+ "liveBuild": "f8ee3f5",
+ "count": 19,
  "changes": [
+  {
+   "sha": "219a6d8",
+   "who": "alistaircranfield",
+   "when": "2026-08-05T11:02:19+01:00",
+   "msg": "core.js in step with the resident board: wider From inference, and no column of apologies"
+  },
+  {
+   "sha": "fde67b1",
+   "who": "github-actions[bot]",
+   "when": "2026-08-04T19:02:02Z",
+   "msg": "What is pending: regenerated from git, not typed"
+  },
   {
    "sha": "8366472",
    "who": "alistaircranfield",
