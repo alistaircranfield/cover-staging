@@ -1,9 +1,21 @@
 {
- "generated": "2026-08-05T10:02:27.739672+00:00",
- "build": "219a6d8",
- "liveBuild": "f8ee3f5",
- "count": 19,
+ "generated": "2026-08-05T19:59:49.973980+00:00",
+ "build": "ed4ba93",
+ "liveBuild": "0f1d127",
+ "count": 21,
  "changes": [
+  {
+   "sha": "ed4ba93",
+   "who": "alistaircranfield",
+   "when": "2026-08-05T20:59:39+01:00",
+   "msg": "The log search comes to Cover too \u2014 core.js stays byte-identical"
+  },
+  {
+   "sha": "d0ac357",
+   "who": "github-actions[bot]",
+   "when": "2026-08-05T10:02:27Z",
+   "msg": "What is pending: regenerated from git, not typed"
+  },
   {
    "sha": "219a6d8",
    "who": "alistaircranfield",
