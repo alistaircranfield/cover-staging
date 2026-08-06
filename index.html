@@ -143,44 +143,23 @@ table.fair{border-collapse:collapse;width:100%}
 .fbar{height:6px;background:var(--hair);border-radius:99px;width:64px;display:inline-block;margin-left:.45rem;vertical-align:middle;overflow:hidden}
 .fbar-fill{height:100%;border-radius:99px;background:var(--accent);display:block}
 #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#2c2c2a;color:#fff;padding:8px 16px;border-radius:10px;font-size:13px;display:none;z-index:50}
-/* log — the resident board's rules, character for character (Ali, 6 Aug: "the change log looks
-   truly terrible on the live one... use that function and styling. reuse code where you can").
-   The FUNCTION was already shared: both pages call logPanel() out of core.js and always have.
-   What had drifted was this block, and drifted badly enough to break the layout rather than just
-   tint it. logPanel builds each entry as a <tr class="logrow"> inside a <table>, and the rule
-   here said `.logrow{display:flex}` — a flex container where a table row should be, which throws
-   away the column widths the shared code carefully sets and stacks every cell into a heap. The
-   other two were quieter: the timestamp is emitted as `.t` and this styled `.lt`, and the count
-   in a day heading is a <span> and this styled <b>, so both simply went unstyled. Three stale
-   selectors, all pointing at markup core.js stopped emitting.
-   These belong in core.css — the same reconciliation the .gatebox rules above are waiting for. */
-.logrow{font-size:.8rem;padding:.4rem 0;border-bottom:1px solid var(--hair)}
-.logrow .t{color:var(--muted);font-size:.7rem}
-.logrow.unread{border-left:2px solid var(--accent);padding-left:.6rem}
-.loghead{display:flex;align-items:baseline;justify-content:space-between;gap:.6rem;font-size:.62rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin:1.1rem 0 .4rem;padding-bottom:.25rem;border-bottom:1px solid var(--line)}
-.loghead:first-child{margin-top:.2rem}
-.loghead span{font-size:.7rem;letter-spacing:0;font-weight:700;color:var(--muted)}
-/* The software's own changes sit behind a rule so a person's decisions read as the foreground. */
-.logrow.auto{border-left:2px solid var(--hair);padding-left:.55rem}
-.logrow.auto .t{font-style:italic}
+/* The log's own rules moved to core.css on 6 Aug, where the renderer that emits those class names
+   already lives. Nothing about the change log is this page's to style; only its container is.
+   Ali, 6 Aug: "Parity has nothing to do with the residents page." Quite right — the two pages
+   share core.js and core.css and nothing else, and the log looking wrong here was never a
+   question of matching that page, it was this page having drifted away from the shared renderer. */
 /* logPanel's "Nothing to show" / "Nothing matches that". SCOPED to the log deliberately: the
    resident board can afford a bare `.empty` because nothing else there uses the name, but this
    page draws every unfilled pod as `.cell.empty`, and an unscoped rule would put 1.6rem of
    padding inside all thirty-five of them. */
 #logBox .empty{color:var(--muted);font-size:.86rem;padding:1.6rem;text-align:center}
-/* The → between the From and To pods. Without it the two chips sit side by side saying nothing
-   about which way round they go. The resident board has had this since the columns were built;
-   this page never got it, which is a fair part of why its log "isn't styled like the residents at
-   all" (Ali, 6 Aug). Theirs is inside the phone block because their desktop table keeps its
-   column headers; ours needs it at every width. */
-#logBox td.logfrom:not(:empty)::after{content:"\2192";color:var(--muted);margin-left:.35rem}
-/* The narrow-screen log, ported wholesale from the resident board — this page had NONE of it, so
-   a five-column table stayed a five-column table on a phone and turned into the mess Ali
-   photographed. Their note is the reasoning, and it holds here identically: "14:16 · Nicholas
-   Coffin" alone is 26 characters. Below 640px each row folds into two lines — rota day and person
+/* Below, and only below, is what this page's own container needs — the rest is in core.css.
+   The narrow-screen log: a five-column table stays a five-column table on a phone and turns into
+   the mess Ali photographed, so under 640px each row folds into two lines — rota day and person
    on top, the move and who did it underneath — and the header is dropped, because an arrow
-   between two pod chips says From and To without needing labels.
-   Selector changed from #logList to #logBox; every rule inside is otherwise identical. */
+   between two pod chips says From and To without needing labels. These are keyed on #logBox
+   because they restructure the table wholesale, and a page that draws a log somewhere else should
+   decide that for itself rather than inherit it. */
 @media (max-width:640px){
   #logBox table{display:block}
   #logBox tr{display:grid;grid-template-columns:auto auto 1fr;gap:.15rem .45rem;align-items:center;padding:.5rem 0;border-top:1px solid var(--hair)}
@@ -456,11 +435,25 @@ async function sha(s){
    Every writer on this page goes through here: three of them used to build the entry inline and
    drifted apart, which is why the Log tab had to guess what was a consultant change by pattern-
    matching the message text. */
-function clog(msg, kind, on, whoSuffix){
+/* `det` is the STRUCTURED half of an entry, and it is what makes the log readable (Ali, 6 Aug:
+   "nice coloured pod letter styling and things missing"). The shared table in core.js draws
+   Person / From / To — with the pods as coloured chips and an arrow between them — from `e.d`.
+   Failing that it tries to parse the message text, but those regexes were written for the
+   RESIDENT board's phrasings and match none of ours. So every row this page has ever written fell
+   through to the "one wide cell, no invented columns" fallback: three empty columns and a
+   sentence. Nothing about that was fixable with CSS, which is why the log kept looking wrong
+   however closely the stylesheet was matched.
+   Shape, from core.js: { act:"move", subj:<person>, from:<pod>, to:<pod> }, plus `bench: true`
+   for somebody arriving who was not on a pod. Anything that is not a pod move — a COD handover, a
+   finish-time swap — deliberately passes no det and stays a plain sentence, because inventing a
+   From and a To for it would be worse than leaving them empty. */
+function clog(msg, kind, on, whoSuffix, det){
   const who = (localStorage.getItem("consEditor") || "?") + (whoSuffix || "");
   cdata.log = cdata.log || [];
-  cdata.log.unshift({ t: new Date().toISOString(), who, msg,
-                      kind: kind === "auto" ? "auto" : "manual", on: on || null });
+  const e = { t: new Date().toISOString(), who, msg,
+              kind: kind === "auto" ? "auto" : "manual", on: on || null };
+  if (det) e.d = det;
+  cdata.log.unshift(e);
   if (cdata.log.length > 300) cdata.log.length = 300;
 }
 /* logKind, logOn, groupLog and logDayLabel come from core.js — the resident board reads its
@@ -1027,8 +1020,24 @@ async function applyEdit(d, k, ini, note){
   const cur = rec.cur[k] || "";
   if (ini === cur) return;
   rec.cur[k] = ini;
-  clog((note || ("Consultant swap " + d + " " + rowLabel(k) + ": " + (cur || "—") + " → " + (ini || "—")))
-       + (ini === (rec.auto[k] || "") ? "" : " (differs from rota sheet)"), "manual", d, " (consultant page)");
+  const flag = ini === (rec.auto[k] || "") ? "" : " (differs from rota sheet)";
+  const isPod = "ABCDE".includes(k);
+  if (note || !isPod) {
+    /* A COD handover or an on-call/Fairfield change: nobody moved pod, so no From and no To. */
+    clog((note || ("Consultant swap " + d + " " + rowLabel(k) + ": " + (cur || "—") + " → " + (ini || "—"))) + flag,
+         "manual", d, " (consultant page)");
+  } else {
+    /* TWO rows when one consultant replaces another, not one (Ali left this to me). A single row
+       can only name one person, so the one who came OFF would leave no trace but a sentence —
+       and "who stopped covering C on Tuesday" is exactly the question a log is opened to answer.
+       Two rows cost nothing and neither person disappears. Departure logged first so that, newest
+       first, the arrival reads above it. */
+    if (cur) clog("Taken off " + rowLabel(k) + " on " + fmt(d) + ": " + nameOf(cur) + flag,
+                  "manual", d, " (consultant page)", { act: "move", subj: cur, from: k, to: "" });
+    if (ini) clog(nameOf(ini) + " covers " + rowLabel(k) + " on " + fmt(d) + flag,
+                  "manual", d, " (consultant page)",
+                  { act: "move", subj: ini, to: k, bench: !cur, from: "" });
+  }
   cdata.savedAt = new Date().toISOString(); cdata.savedBy = who;
   state("saving");
   try {
@@ -1049,8 +1058,13 @@ async function applySwap(d, k1, k2){
   if (!a || !b || a === b) return;
   rec.cur[k1] = b; rec.cur[k2] = a;
   const who = localStorage.getItem("consEditor") || "?";
-  clog("Pod swap " + d + ": " + a + " " + rowLabel(k1) + " ↔ " + b + " " + rowLabel(k2),
-       "manual", d, " (consultant page)");
+  /* One row per person, so the swap reads as the two moves it actually is and each consultant
+     appears under their own name with their own pods. */
+  const podk = k => "ABCDE".includes(k) ? k : "";
+  clog(nameOf(a) + " moves to " + rowLabel(k2) + " on " + fmt(d), "manual", d, " (consultant page)",
+       { act: "move", subj: a, from: podk(k1), to: podk(k2) });
+  clog(nameOf(b) + " moves to " + rowLabel(k1) + " on " + fmt(d), "manual", d, " (consultant page)",
+       { act: "move", subj: b, from: podk(k2), to: podk(k1) });
   cdata.savedAt = new Date().toISOString(); cdata.savedBy = who;
   state("saving");
   try {
