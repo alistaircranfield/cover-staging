@@ -177,7 +177,12 @@ table.fair{border-collapse:collapse;width:100%}
 }
 #teamPanel{display:none;width:186px;flex-shrink:0;background:var(--card);border-right:.5px solid var(--line);padding:1rem .55rem;position:sticky;top:0;height:100vh;overflow-y:auto}
 body.teamopen #teamPanel{display:block}
-.tpback{display:flex;align-items:center;gap:.35rem;background:none;border:0;font:inherit;font-size:.78rem;font-weight:700;color:var(--muted);cursor:pointer;padding:.3rem .55rem .8rem;width:100%;text-align:left}
+/* "Menu" is a PHONE control and is hidden everywhere else — the resident board's rule, which this
+   page had drifted from by showing it always (Ali, 6 Aug: "why is there a random <menu at top, not
+   required"). On a phone the team panel slides over the icon rail, so something has to hand you
+   back; on a desktop the rail is right there beside the panel and a back button to a menu you can
+   already see is just noise. Revealed again in the max-width:760px block below. */
+.tpback{display:none;align-items:center;gap:.35rem;background:none;border:0;font:inherit;font-size:.78rem;font-weight:700;color:var(--muted);cursor:pointer;padding:.3rem .55rem .8rem;width:100%;text-align:left}
 .tpback svg{width:15px;height:15px}
 .tpttl{font-size:.58rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:0 .55rem;margin-bottom:.6rem}
 .tpi{display:flex;align-items:center;gap:.6rem;width:100%;background:none;border:0;font:inherit;font-size:.82rem;font-weight:600;color:#4a4f58;padding:.52rem .55rem;border-radius:10px;cursor:pointer;text-align:left}
@@ -190,7 +195,8 @@ body.teamopen #teamPanel{display:block}
   .hbtn.hicon{width:32px;height:32px;padding:.38rem}
   /* The name is the first thing to give up room — the icons must not wrap. */
   #btnWho{font-size:.64rem;padding:.4rem .5rem;max-width:28vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#teamPanel{position:fixed;left:0;top:0;bottom:0;height:auto;z-index:60;box-shadow:0 0 40px rgba(23,24,28,.18)}}
+#teamPanel{position:fixed;left:0;top:0;bottom:0;height:auto;z-index:60;box-shadow:0 0 40px rgba(23,24,28,.18)}
+  .tpback{display:flex}}
 </style>
 
 </head>
