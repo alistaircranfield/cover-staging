@@ -1,9 +1,45 @@
 {
- "generated": "2026-08-06T14:41:42.202586+00:00",
- "build": "ffabf1f",
- "liveBuild": "9add2f8",
- "count": 23,
+ "generated": "2026-08-06T16:23:00.493012+00:00",
+ "build": "3e351b3",
+ "liveBuild": "feee6de",
+ "count": 29,
  "changes": [
+  {
+   "sha": "3e351b3",
+   "who": "alistaircranfield",
+   "when": "2026-08-06T17:22:23+01:00",
+   "msg": "The log names people and pods, and its rules move to core.css where the renderer lives"
+  },
+  {
+   "sha": "aaf6a77",
+   "who": "alistaircranfield",
+   "when": "2026-08-06T17:07:25+01:00",
+   "msg": "Change log: the \u2192 between From and To, and the narrow-screen layout the resident board has"
+  },
+  {
+   "sha": "c9f60c8",
+   "who": "alistaircranfield",
+   "when": "2026-08-06T17:02:16+01:00",
+   "msg": "The \"Menu\" back button is a phone control \u2014 hidden on desktop, as on the resident board"
+  },
+  {
+   "sha": "d9fa757",
+   "who": "alistaircranfield",
+   "when": "2026-08-06T16:46:55+01:00",
+   "msg": "Tests for the window, Look ahead, the lock page and the log styling \u2014 154 cover, 61 render"
+  },
+  {
+   "sha": "b484e83",
+   "who": "alistaircranfield",
+   "when": "2026-08-06T16:45:22+01:00",
+   "msg": "Cover: week-aligned 4-week window, Look ahead admin page, resident-style lock, log styling fixed"
+  },
+  {
+   "sha": "ede57df",
+   "who": "github-actions[bot]",
+   "when": "2026-08-06T14:41:42Z",
+   "msg": "What is pending: regenerated from git, not typed"
+  },
   {
    "sha": "ffabf1f",
    "who": "alistaircranfield",
