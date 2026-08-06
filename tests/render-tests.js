@@ -363,6 +363,19 @@ const SEED = `(function(){
             "return /Kate Bailey|Sam Aziz/.test(r.textContent) && " +
             "[...r.children].some(function(c){ return c.colSpan > 1; }); }).length") === 0);
 
+  /* The bug that made staging useless: no save key meant every edit returned at the guard, so
+     a badge dragged to another pod snapped back and nothing said why (Ali, 6 Aug). */
+  ok("an edit is possible on the test site with no save key at all",
+     w.eval("(function(){ const keep = COVER_SAVE; return canSave(); })()") === true);
+  ok("a dragged badge actually moves",
+     (function(){ const before = w.eval("JSON.stringify(cdata.days)");
+       w.eval("(function(){ const T = new Date().toISOString().slice(0,10);" +
+              "cdata.days[T] = { auto:{A:'AB',B:'NW'}, cur:{A:'AB',B:'NW'} };" +
+              "EDIT_MODE = true; applySwap(T, 'A', 'B'); })()");
+       const after = w.eval("(function(){ const T = new Date().toISOString().slice(0,10);" +
+              "return cdata.days[T].cur.A + cdata.days[T].cur.B; })()");
+       return after === "NWAB"; })(), "the two did not swap");
+
   ok("no errors across the whole run", errors.length === 0, errors.slice(0, 3).join(" | "));
 
   console.log("\n=== " + pass + " passed, " + fail + " failed ===");

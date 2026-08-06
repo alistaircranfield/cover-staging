@@ -105,6 +105,7 @@ function loadPage({ url, testMode, keys, localKeys, resident, store }) {
     get alloc(){ return CR(); },
     get cdata(){ return cdata; }, setCdata: v => { cdata = v; },
     setJun: v => { showJun = v; }, renderRota, renderAll, setCurWeek: k => { curWeek = k; },
+    renderAhead, aheadWeeks, pubUntil, PUB_WEEKS, showTab, draftOverrides, redraftDrafts,
     applyFinSwap: typeof applyFinSwap !== "undefined" ? applyFinSwap : null,
     profileFor: typeof profileFor !== "undefined" ? profileFor : null }; };`;
   html = html.replace("load().catch(", hook + "\nload().catch(");
@@ -114,6 +115,11 @@ function loadPage({ url, testMode, keys, localKeys, resident, store }) {
     beforeParse(w) {
       w.matchMedia = () => ({ matches:false, addListener(){}, removeListener(){}, addEventListener(){}, removeEventListener(){} });
       w.scrollTo = () => {}; w.requestAnimationFrame = cb => setTimeout(cb, 0);
+      /* jsdom ships no crypto.subtle, and the page hashes the rota-team password with it. Without
+         this the password gate simply could not be exercised — which is how it went untested long
+         enough for its markup to diverge from the resident board's unnoticed. Node's own WebCrypto
+         is the same algorithm, so the hashes are the real ones. */
+      try { Object.defineProperty(w, "crypto", { value: require("crypto").webcrypto, configurable: true }); } catch(e){}
       w.HTMLElement.prototype.scrollIntoView = () => {};
       // core.js is an external file jsdom won't fetch; it is the thing that sets this flag.
       if (testMode) w.__POD_TEST = true;
@@ -397,10 +403,13 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
       !win.document.querySelector("aside button[data-tab='admin']"));
     // no password set: the shield opens the inset menu straight onto Fairness
     win.document.querySelector("#btnTeam").click();
+    /* Four items now, and the shield lands on Look ahead rather than Fairness (Ali, 6 Aug):
+       what's coming up is the question the rota team opens the shield to answer. */
     ok("no password set: shield opens the inset menu",
       win.document.body.classList.contains("teamopen") &&
-      win.document.querySelectorAll("#teamPanel .tpi").length === 3 &&
-      win.document.querySelector("#tab-fair").style.display !== "none");
+      win.document.querySelectorAll("#teamPanel .tpi").length === 4 &&
+      win.document.querySelector("#tab-ahead").style.display !== "none" &&
+      win.document.querySelector("#tab-fair").style.display === "none");
     win.document.querySelector("#tpBack").click();
     ok("Menu goes back to Pods", !win.document.body.classList.contains("teamopen") &&
       win.document.querySelector("#tab-rota").style.display !== "none");
@@ -408,8 +417,26 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
     api.data.staffPw = "0123456789abcdef";
     win.sessionStorage.removeItem("consTeamUnlocked");
     win.document.querySelector("#btnTeam").click();
+    /* The lock is a PAGE now, not a floating dialog — the resident board's pattern (Ali, 6 Aug).
+       So the test asks what a person would see: the pane is the password box, the team menu is
+       not there behind it, and there is no modal to dismiss. */
     ok("password set: the shield shows the gate, not the menu",
-      !!win.document.querySelector("#whoOverlay") && !win.document.body.classList.contains("teamopen"));
+      win.document.body.classList.contains("teamlocked") &&
+      win.document.querySelector("#tab-lock").style.display !== "none" &&
+      !win.document.body.classList.contains("teamopen"));
+    ok("the lock is a page, not a floating dialog", !win.document.querySelector("#whoOverlay"));
+    ok("and every team page stays hidden behind it",
+      ["ahead","fair","log","setup"].every(t => win.document.querySelector("#tab-" + t).style.display === "none"));
+    /* It does not offer to SET or RESET the password: data.staffPw belongs to the resident board,
+       and a second place to change one password is how two passwords appear. */
+    ok("it does not offer to set or reset the password — that lives on the resident board",
+      !win.document.querySelector("#lockReset") && /Unlock/.test(win.document.querySelector("#lockBtn").textContent));
+    const lp = win.document.querySelector("#lockPw");
+    lp.value = "nope"; win.document.querySelector("#lockBtn").click();
+    await new Promise(r => setTimeout(r, 10));
+    ok("a wrong password says so and keeps the door shut",
+      /Wrong/.test(win.document.querySelector("#lockMsg").textContent) &&
+      win.document.body.classList.contains("teamlocked"));
   }
 
   console.log("Four-week publication window");
@@ -417,7 +444,8 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
     const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
     const far = addDays(MON, 42);                                      // six weeks out
     const full = { A:"TF",B:"MG",C:"WH",D:"AB",E:"CMAB",oncall:"NJC",cod:"CMAB",fgh:"",wkend:false,fin:{} };
-    api.alloc.days[far] = { auto: Object.assign({}, full), cur: Object.assign({}, full) };
+    const put = d => { api.alloc.days[d] = { auto: Object.assign({}, full), cur: Object.assign({}, full) }; };
+    put(far);
     api.data.staffPw = "0123456789abcdef";                             // a password exists, viewer not unlocked
     win.sessionStorage.removeItem("consTeamUnlocked");
     api.setCurWeek(addDays(MON, 42)); api.renderRota();
@@ -432,6 +460,130 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
     api.setCurWeek(MON); api.renderRota();
     ok("inside four weeks the grid shows the allocation",
       /TF/.test(win.document.querySelector("td[data-pod='A'][data-date='" + MON + "']").textContent));
+
+    /* WEEK-ALIGNED, not rolling (Ali, 6 Aug). The edge is the SUNDAY of week+3 whatever day the
+       suite is run on — which is the point: a rolling today+28 drew the fourth week half in
+       names and half in dashes, and moved the edge every day. These two assertions are the
+       whole rule, and they are deliberately written against MON rather than against today, so
+       running the suite on a Friday tests the same boundary as running it on a Monday. */
+    ok("the published edge is the Sunday of week+3, not today+28",
+      api.pubUntil() === addDays(MON, 27), api.pubUntil() + " vs " + addDays(MON, 27));
+    ok("four whole weeks are published", api.PUB_WEEKS === 4);
+    put(addDays(MON, 27)); put(addDays(MON, 28));
+    api.setCurWeek(addDays(MON, 21)); api.renderRota();
+    ok("the last published week is drawn to its Sunday — no half-dashed week",
+      /TF/.test(win.document.querySelector("td[data-pod='A'][data-date='" + addDays(MON, 27) + "']").textContent));
+    api.setCurWeek(addDays(MON, 28)); api.renderRota();
+    ok("the Monday after the edge is not published",
+      /—/.test(win.document.querySelector("td[data-pod='A'][data-date='" + addDays(MON, 28) + "']").textContent));
+  }
+
+  console.log("Look ahead — the rota team's view past the edge");
+  {
+    const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
+    const full = { A:"TF",B:"MG",C:"WH",D:"AB",E:"CMAB",oncall:"NJC",cod:"CMAB",fgh:"",wkend:false,fin:{} };
+    for (let i = 0; i < 77; i++)                                       // eleven weeks in the store
+      api.alloc.days[addDays(MON, i)] = { auto: Object.assign({}, full), cur: Object.assign({}, full) };
+    api.data.staffPw = "0123456789abcdef";
+    win.sessionStorage.setItem("consTeamUnlocked", "1");
+
+    /* The bug this page exists for. weeksAvail() reads data.weeks — the RESIDENT rota — and the
+       fixture holds exactly one week of it, the same shape as the real thing where the resident
+       rota is published far less far ahead than the consultant workbook reaches. An admin who
+       unlocked the shield could still not page past it. Look ahead takes its weeks from the
+       COVER store instead, so it reaches everything the allocator has actually allocated. */
+    ok("the resident rota bounds the Pods week arrows to one week here",
+      api.weeksAvail().length === 1, api.weeksAvail().length + " resident week(s)");
+    ok("Look ahead reads its weeks from the cover store, not the resident rota",
+      api.aheadWeeks().length === 11, api.aheadWeeks().length + " weeks");
+    ok("it starts at this Monday", api.aheadWeeks()[0] === MON);
+
+    api.showTab("ahead");
+    const box = win.document.querySelector("#aheadBox");
+    ok("a week table per week", box.querySelectorAll("table.rota").length === 11,
+      box.querySelectorAll("table.rota").length + " tables");
+    ok("the first four weeks are marked published",
+      box.querySelectorAll(".ahchip.pub").length === 4,
+      box.querySelectorAll(".ahchip.pub").length + " published");
+    ok("the rest are marked draft, so nobody mistakes one for a promise",
+      box.querySelectorAll(".ahchip:not(.pub)").length === 7,
+      box.querySelectorAll(".ahchip:not(.pub)").length + " draft");
+    ok("it says how far the rota actually reaches",
+      /reaches/.test(box.textContent) && /11 weeks/.test(box.textContent));
+
+    /* Editable, like the Pods grid — and by exactly the same code, which is what this asserts:
+       a cell you can click and a badge you can pick up, in a week beyond the published edge. */
+    const draftDay = addDays(MON, 56);
+    const cell = box.querySelector("td[data-pod='A'][data-date='" + draftDay + "'] .cell[data-d]");
+    ok("draft weeks are editable, not a read-only preview", !!cell && cell.dataset.k === "A");
+    ok("and carry the same drag handles as the Pods grid",
+      !!box.querySelector("td[data-pod='A'][data-date='" + draftDay + "'] .cell[draggable='true']"));
+
+    /* Re-running the algorithm on the draft weeks. The button releases hand-made placements past
+       the published edge so the nightly sync can reallocate them — a hand-edit makes `cur` differ
+       from `auto` and the sync then leaves that day alone for ever, which silently freezes a draft
+       week nobody has even seen. */
+    ok("with nothing held by hand the button is offered but disabled",
+      win.document.querySelector("#btnRedraft").disabled === true);
+    api.alloc.days[draftDay].cur.A = "ZZ";                       // a hand edit in a draft week
+    const pubDay = addDays(MON, 3);                              // ...and one in a PUBLISHED week
+    api.alloc.days[pubDay].cur.A = "ZZ";
+    api.renderAhead();
+    ok("a hand-made draft placement enables it",
+      win.document.querySelector("#btnRedraft").disabled === false);
+    ok("and it counts the draft one only, never the published one",
+      api.draftOverrides().length === 1 && api.draftOverrides()[0].d === draftDay,
+      JSON.stringify(api.draftOverrides()));
+
+    win.confirm = () => true;
+    win.localStorage.setItem("consEditor", "TF");
+    await api.redraftDrafts();
+    ok("running it puts the draft day back to what the algorithm said",
+      api.alloc.days[draftDay].cur.A === api.alloc.days[draftDay].auto.A);
+    ok("the published week is left exactly alone", api.alloc.days[pubDay].cur.A === "ZZ");
+    ok("it is logged once, as a person's decision, not once per placement",
+      api.cdata.log[0].kind === "manual" && /handed back to the algorithm/.test(api.cdata.log[0].msg),
+      api.cdata.log[0] && api.cdata.log[0].msg);
+
+    /* A viewer who never got through the shield must not be able to reach this by any route. */
+    win.sessionStorage.removeItem("consTeamUnlocked");
+    api.renderAhead();
+    ok("locked out, Look ahead shows no names either",
+      !/TF/.test(win.document.querySelector("#aheadBox td[data-pod='A'][data-date='" + draftDay + "']").textContent));
+  }
+
+  console.log("The change log is drawn by the shared code, and styled for it");
+  {
+    /* Ali, 6 Aug: "the change log looks truly terrible on the live one". The FUNCTION was already
+       shared — both pages call logPanel() out of core.js. What had drifted was this page's CSS,
+       and it had drifted onto selectors the shared code no longer emits, so the log rendered
+       essentially unstyled. These assertions are against the stylesheet rather than the render,
+       because that is where the fault was and where it would come back. */
+    /* Comments stripped first. The note explaining this fix necessarily QUOTES the broken rule it
+       replaced, and without this the suite reads that quotation as the rule still being there —
+       which it promptly did. A test that cannot tell code from prose about code is worse than no
+       test, because it fails loudest exactly when someone has documented their reasoning. */
+    const decomment = s => s.replace(/\/\*[\s\S]*?\*\//g, "");
+    const css = decomment(fs.readFileSync(PAGE, "utf8"));
+    const rescss = decomment(fs.readFileSync(RESIDENT, "utf8"));
+    ok("the log is drawn by core.js's logPanel, not a second copy here",
+      /logPanel\(/.test(css) && !/function logPanel/.test(css));
+    /* The killer: logPanel builds each entry as a <tr>, and display:flex on a table row throws
+       away every column width the shared code sets. */
+    ok("logrow is not forced to flex — it is a table row",
+      !/\.logrow\{[^}]*display:flex/.test(css), (css.match(/\.logrow\{[^}]*\}/) || [""])[0]);
+    ok("the timestamp selector matches what core.js emits (.t, not .lt)",
+      /\.logrow \.t\{/.test(css) && !/\.logrow \.lt\{/.test(css));
+    ok("the day-heading count selector matches too (span, not b)",
+      /\.loghead span\{/.test(css) && !/\.loghead b\{/.test(css));
+    for (const rule of [".logrow{", ".logrow .t{", ".loghead span{", ".logrow.auto{"])
+      ok("matches the resident board rule for " + rule.replace("{", ""),
+        css.includes(rule) && rescss.includes(rule));
+    ok("dead selectors for controls that no longer exist are gone",
+      !/\.segbtn\{/.test(css) && !/\.logbar\{/.test(css));
+    /* .empty is scoped here on purpose — unscoped it would pad all 35 pod cells. */
+    ok("the log's empty state is scoped to the log, not to every empty pod cell",
+      /#logBox \.empty\{/.test(css) && !/^\.empty\{/m.test(css));
   }
 
   console.log("Combined fairness page");
@@ -595,10 +747,27 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
       use(1, "auto") && win.document.querySelectorAll("#logBox .logrow").length === 1,
       win.document.querySelectorAll("#logBox .logrow").length + " rows");
 
+    /* This assertion had been red since 3 Aug and was NOT a product fault — it was written before
+       the third control existed. Grouping by the day a change AFFECTS brings in a Days control
+       ("Today and ahead" / "Already been") which defaults to ahead, because someone reading by
+       rota day wants the shifts they are about to work rather than a year of history. The one
+       automatic entry in this fixture is dated in the past, so nought rows is the correct answer
+       and the old expectation of one row was asking the page to ignore a control it had grown.
+       Rewritten to test what the name actually claims — the filter survives the grouping change —
+       and then to drive the new control and find the entry exactly where it should be. */
+    use(0, "affects");
     ok("the two controls are independent — the filter survives changing the grouping",
-      use(0, "affects") && win.document.querySelectorAll("#logBox .logrow").length === 1 &&
-      win.eval("logBy + ',' + logFilter") === "affects,auto",
-      win.eval("logBy + ',' + logFilter"));
+      win.eval("logBy + ',' + logFilter") === "affects,auto", win.eval("logBy + ',' + logFilter"));
+    const sels3 = [...win.document.querySelectorAll("#logBox select")];
+    ok("grouping by the day affected grows a third control, for past vs ahead",
+      sels3.length === 3, sels3.length + " controls");
+    ok("and defaults to what's ahead, so a past change is not shown yet",
+      win.document.querySelectorAll("#logBox .logrow").length === 0,
+      win.document.querySelectorAll("#logBox .logrow").length + " rows");
+    ok("switching to Already been finds it, still filtered to automatic",
+      use(2, "past") && win.document.querySelectorAll("#logBox .logrow").length === 1 &&
+      win.document.querySelectorAll("#logBox .logrow.auto").length === 1,
+      win.document.querySelectorAll("#logBox .logrow").length + " rows");
   }
 
   console.log("\n" + (fail ? "=== " + pass + " passed, " + fail + " failed ===" : "=== " + pass + " passed, 0 failed ==="));
