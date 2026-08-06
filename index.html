@@ -168,6 +168,31 @@ table.fair{border-collapse:collapse;width:100%}
    page draws every unfilled pod as `.cell.empty`, and an unscoped rule would put 1.6rem of
    padding inside all thirty-five of them. */
 #logBox .empty{color:var(--muted);font-size:.86rem;padding:1.6rem;text-align:center}
+/* The → between the From and To pods. Without it the two chips sit side by side saying nothing
+   about which way round they go. The resident board has had this since the columns were built;
+   this page never got it, which is a fair part of why its log "isn't styled like the residents at
+   all" (Ali, 6 Aug). Theirs is inside the phone block because their desktop table keeps its
+   column headers; ours needs it at every width. */
+#logBox td.logfrom:not(:empty)::after{content:"\2192";color:var(--muted);margin-left:.35rem}
+/* The narrow-screen log, ported wholesale from the resident board — this page had NONE of it, so
+   a five-column table stayed a five-column table on a phone and turned into the mess Ali
+   photographed. Their note is the reasoning, and it holds here identically: "14:16 · Nicholas
+   Coffin" alone is 26 characters. Below 640px each row folds into two lines — rota day and person
+   on top, the move and who did it underneath — and the header is dropped, because an arrow
+   between two pod chips says From and To without needing labels.
+   Selector changed from #logList to #logBox; every rule inside is otherwise identical. */
+@media (max-width:640px){
+  #logBox table{display:block}
+  #logBox tr{display:grid;grid-template-columns:auto auto 1fr;gap:.15rem .45rem;align-items:center;padding:.5rem 0;border-top:1px solid var(--hair)}
+  #logBox tr:first-child{display:none}
+  #logBox td{display:block;padding:0 !important;width:auto !important;text-align:left !important;vertical-align:middle}
+  #logBox td:nth-child(1){grid-column:1;grid-row:1}
+  #logBox td:nth-child(2){grid-column:2/4;grid-row:1;font-size:.9rem}
+  #logBox td:nth-child(3){grid-column:1;grid-row:2}
+  #logBox td:nth-child(4){grid-column:2;grid-row:2}
+  #logBox td:nth-child(5){grid-column:3;grid-row:2;text-align:right !important;font-size:.72rem;color:var(--muted)}
+  #logBox .loghead{margin-top:.9rem}
+}
 .logon{display:inline-block;margin-left:.45rem;font-size:.66rem;font-weight:600;color:var(--muted);background:var(--hair);border-radius:999px;padding:.05rem .42rem;white-space:nowrap}
 /* Desktop: the pod labels stay put while the week scrolls sideways. */
 @media(min-width:761px){
