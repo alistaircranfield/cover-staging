@@ -1,9 +1,21 @@
 {
- "generated": "2026-08-08T14:28:07.591756+00:00",
- "build": "2516ada",
+ "generated": "2026-08-08T14:29:10.265771+00:00",
+ "build": "3d51e89",
  "liveBuild": "b5370e5",
- "count": 45,
+ "count": 47,
  "changes": [
+  {
+   "sha": "3d51e89",
+   "who": "alistaircranfield",
+   "when": "2026-08-08T15:29:02+01:00",
+   "msg": "Update core.js"
+  },
+  {
+   "sha": "6eafba6",
+   "who": "github-actions[bot]",
+   "when": "2026-08-08T14:28:07Z",
+   "msg": "What is pending: regenerated from git, not typed"
+  },
   {
    "sha": "2516ada",
    "who": "alistaircranfield",
