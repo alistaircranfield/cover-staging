@@ -30,6 +30,8 @@ const PAGE = path.join(__dirname, "..", "index.html");
 const RESIDENT = path.join(__dirname, "resident-fixture.html");
 const CORE_CSS = path.join(__dirname, "..", "core.css");
 const CORE_JS = path.join(__dirname, "..", "core.js");
+/* The resident board itself, read only to prove the two pages agree where they claim to. */
+const RESIDENT_PAGE = path.join(__dirname, "..", "..", "resident", "index.html");
 
 const LIVE = "https://rota.salford.icu/consultants.html";
 const TEST = "https://alistaircranfield.github.io/pod-staging/consultants.html";
@@ -106,7 +108,10 @@ function loadPage({ url, testMode, keys, localKeys, resident, store }) {
     get cdata(){ return cdata; }, setCdata: v => { cdata = v; },
     setJun: v => { showJun = v; }, renderRota, renderAll, setCurWeek: k => { curWeek = k; },
     renderAhead, aheadWeeks, pubUntil, PUB_WEEKS, showTab, draftOverrides, redraftDrafts,
+    setAheadWeek: k => { aheadWeek = k; }, nameOf, saveName, unnamed, consList,
     applyFinSwap: typeof applyFinSwap !== "undefined" ? applyFinSwap : null,
+    renderAttn, attnCount, feedbackDialog, sendFeedback, renderFeedback,
+    unreadFeedback, markFeedbackRead, trialOn, TRIAL_END,
     profileFor: typeof profileFor !== "undefined" ? profileFor : null }; };`;
   html = html.replace("load().catch(", hook + "\nload().catch(");
 
@@ -145,7 +150,7 @@ function loadPage({ url, testMode, keys, localKeys, resident, store }) {
       };
     }
   });
-  return new Promise(res => setTimeout(() => res({ api: dom.window.__api && dom.window.__api(), win: dom.window, posts, cposts, lastPayload }), 700));
+  return new Promise(res => setTimeout(() => res({ api: dom.window.__api && dom.window.__api(), win: dom.window, posts, cposts, cbodies, lastPayload }), 700));
 }
 
 const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cread", cs:"https://flow/csave" };
@@ -283,14 +288,26 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
     const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
     const day = addDays(MON, 1);
     const n0 = api.cdata.log.length;
+    /* An edit into an EMPTY pod is one row; replacing somebody is two, the arrival and the
+       departure, so that neither consultant vanishes with only a sentence to say so (6 Aug).
+       Read before the edit, because the edit is what changes it. */
+    const wasOccupied = !!(api.alloc.days[day] && api.alloc.days[day].cur.C);
     await api.applyEdit(day, "C", "QQ");
-    ok("an edit adds a log entry", api.cdata.log.length === n0 + 1);
+    ok("an edit adds a log entry", api.cdata.log.length === n0 + (wasOccupied ? 2 : 1),
+      (api.cdata.log.length - n0) + " added, pod was " + (wasOccupied ? "occupied" : "empty"));
     ok("the resident board's log is untouched", api.data.log.length === 0, api.data.log.length + " entries");
     const e = api.cdata.log[0] || {};
     ok("the entry names who made it", /AJC/.test(e.who || ""), JSON.stringify(e.who));
-    ok("the entry names the day and the change", (e.msg||"").includes(day) && (e.msg||"").includes("QQ"), e.msg);
+    /* The message is prose now and the DATE lives in `on`, which is what the page groups by —
+       putting an ISO date in the sentence as well just repeated it in every row. */
+    ok("the entry names the day and the change",
+      e.on === day && (e.msg || "").includes("QQ"), JSON.stringify([e.on, e.msg]));
+    ok("and carries the pod it moved to, as structured detail",
+      !!e.d && e.d.act === "move" && e.d.to === "C", JSON.stringify(e.d));
+    const n1 = api.cdata.log.length;
     await api.applySwap(day, "A", "B");
-    ok("a swap adds its own log entry", api.cdata.log.length === n0 + 2);
+    ok("a swap adds its own log entry — one per person", api.cdata.log.length === n1 + 2,
+      (api.cdata.log.length - n1) + " added");
     ok("an edit that changes nothing is not logged", await (async () => {
       const before = api.cdata.log.length;
       await api.applyEdit(day, "C", "QQ");            // same value again
@@ -403,11 +420,13 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
       !win.document.querySelector("aside button[data-tab='admin']"));
     // no password set: the shield opens the inset menu straight onto Fairness
     win.document.querySelector("#btnTeam").click();
-    /* Four items now, and the shield lands on Look ahead rather than Fairness (Ali, 6 Aug):
-       what's coming up is the question the rota team opens the shield to answer. */
+    /* Seven items as of 8 Aug — Feedback joined them — and the shield lands on Look ahead rather
+       than Fairness (Ali, 6 Aug): what's coming up is the question the rota team opens the shield
+       to answer. The count is asserted deliberately: a tab added without being thought about is
+       exactly how a menu turns into a list of everything anybody ever built. */
     ok("no password set: shield opens the inset menu",
       win.document.body.classList.contains("teamopen") &&
-      win.document.querySelectorAll("#teamPanel .tpi").length === 4 &&
+      win.document.querySelectorAll("#teamPanel .tpi").length === 7 &&
       win.document.querySelector("#tab-ahead").style.display !== "none" &&
       win.document.querySelector("#tab-fair").style.display === "none");
     win.document.querySelector("#tpBack").click();
@@ -426,11 +445,21 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
       !win.document.body.classList.contains("teamopen"));
     ok("the lock is a page, not a floating dialog", !win.document.querySelector("#whoOverlay"));
     ok("and every team page stays hidden behind it",
-      ["ahead","fair","log","setup"].every(t => win.document.querySelector("#tab-" + t).style.display === "none"));
-    /* It does not offer to SET or RESET the password: data.staffPw belongs to the resident board,
-       and a second place to change one password is how two passwords appear. */
-    ok("it does not offer to set or reset the password — that lives on the resident board",
-      !win.document.querySelector("#lockReset") && /Unlock/.test(win.document.querySelector("#lockBtn").textContent));
+      ["attn","ahead","fair","log","staff","setup"].every(t => win.document.querySelector("#tab-" + t).style.display === "none"));
+    /* It still does not SET the password — data.staffPw belongs to the resident board, and a second
+       place to change one password is how two passwords appear. What it does now offer is a way to
+       ask a named admin to ALLOW a reset, because the dead end was worse (Ali, 8 Aug). */
+    ok("it does not offer to set the password — that lives on the resident board",
+      !win.document.querySelector("#lockSetBtn") && /Unlock/.test(win.document.querySelector("#lockBtn").textContent));
+    ok("but it does offer a way out when everyone has forgotten",
+      !!win.document.querySelector("#lockReset"));
+    api.alloc.admins = ["alistair.cranfield@nhs.net", "scott.houston@nhs.net"];
+    win.document.querySelector("#lockReset").click();
+    const opts = [...win.document.querySelectorAll("#lockAdmin option")].map(o => o.textContent);
+    ok("the reset goes to a named admin, chosen from a list", opts.length === 2, opts.join(" | "));
+    /* Anybody with the link reaches this screen, so it must not publish consultants' addresses. */
+    ok("and their addresses are masked, because anyone can reach this screen",
+      opts.every(o => /•••/.test(o) && !/alistair\.cranfield/.test(o)), opts.join(" | "));
     const lp = win.document.querySelector("#lockPw");
     lp.value = "nope"; win.document.querySelector("#lockBtn").click();
     await new Promise(r => setTimeout(r, 10));
@@ -498,26 +527,78 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
       api.aheadWeeks().length === 11, api.aheadWeeks().length + " weeks");
     ok("it starts at this Monday", api.aheadWeeks()[0] === MON);
 
+    /* Look ahead IS the Pods page — one week, the same arrows — that carries on past the edge
+       (Ali, 6 Aug). So: exactly one grid, not a stack of them. */
     api.showTab("ahead");
     const box = win.document.querySelector("#aheadBox");
-    ok("a week table per week", box.querySelectorAll("table.rota").length === 11,
-      box.querySelectorAll("table.rota").length + " tables");
-    ok("the first four weeks are marked published",
-      box.querySelectorAll(".ahchip.pub").length === 4,
-      box.querySelectorAll(".ahchip.pub").length + " published");
-    ok("the rest are marked draft, so nobody mistakes one for a promise",
-      box.querySelectorAll(".ahchip:not(.pub)").length === 7,
-      box.querySelectorAll(".ahchip:not(.pub)").length + " draft");
-    ok("it says how far the rota actually reaches",
-      /reaches/.test(box.textContent) && /11 weeks/.test(box.textContent));
+    const grid = win.document.querySelector("#ahGrid");
+    ok("one week on screen, like Pods — not a stack of every week",
+      grid.querySelectorAll("table.rota").length === 1,
+      grid.querySelectorAll("table.rota").length + " tables");
+    ok("it opens on this week", win.document.querySelector("#ahTitle").textContent.length > 0 &&
+      !!grid.querySelector("td[data-date='" + MON + "']"));
+    ok("this week is marked as one everyone can see",
+      win.document.querySelector("#ahChip").classList.contains("pub"));
+    ok("the back arrow is dead on the first week, so it cannot page into the past",
+      win.document.querySelector("#ahPrev").disabled === true);
+    /* The chip must not sit upstream of a control people click repeatedly: its two labels are very
+       different lengths, so between the title and Next it shoved the arrow sideways on every page
+       — and crossing the four-week line is exactly when you are clicking fastest (Ali, 7 Aug).
+       Fixed twice over: it is last in the bar, and its width is measured from a ghost copy of the
+       longer label rather than guessed. */
+    const bar = [...win.document.querySelectorAll("#tab-ahead .weekbar > *")].map(e => e.id);
+    ok("the chip is last in the week bar, downstream of both arrows",
+      bar.indexOf("ahChip") === bar.length - 1 &&
+      bar.indexOf("ahChip") > bar.indexOf("ahNext"), bar.join(" "));
+    ok("and carries a ghost of the longer label, so its width never changes",
+      !!win.document.querySelector("#ahChip .ghost"));
+    /* The chip carries an invisible copy of the LONG label so its width never changes with its
+       text; without it the Next arrow slides sideways at the four-week line, which is exactly
+       where you are clicking fastest (Ali, 7 Aug). jsdom has no layout, so the assertion is on
+       the mechanism: the ghost is present, it holds the longest label, and it is the one hidden. */
+    const ghost = () => win.document.querySelector("#ahChip > .ghost");
+    ok("the chip is sized by a hidden copy of its longest label, so the arrows cannot move",
+      !!ghost() && ghost().textContent === "EVERYONE SEES THIS" &&
+      win.document.querySelectorAll("#ahChip > span").length === 2 &&
+      win.document.querySelector("#ahChip > span:last-child") !== ghost());
+
+    /* The whole point: the arrows do not stop at the four-week lock. */
+    for (let n = 0; n < 6; n++) win.document.querySelector("#ahNext").click();
+    ok("the forward arrow pages straight past the published edge",
+      !!grid.querySelector("td[data-date='" + addDays(MON, 42) + "']"),
+      win.document.querySelector("#ahTitle").textContent);
+    ok("and says plainly that this one is draft",
+      !win.document.querySelector("#ahChip").classList.contains("pub") &&
+      win.document.querySelector("#ahChip > span:last-child").textContent === "DRAFT");
+    ok("and the ghost still holds the long label, so the chip has not shrunk",
+      win.document.querySelector("#ahChip > .ghost").textContent === "EVERYONE SEES THIS");
+    ok("a draft week shows its names — the shield is what unlocks them",
+      /TF/.test(grid.querySelector("td[data-pod='A'][data-date='" + addDays(MON, 42) + "']").textContent));
+    for (let n = 0; n < 4; n++) win.document.querySelector("#ahNext").click();
+    ok("the forward arrow stops at the end of the rota", win.document.querySelector("#ahNext").disabled === true);
+    /* The horizon used to be three sentences and is now the ribbon (Ali, 8 Aug: "looks messy and
+       unprofessional with stupid explainers"). These assert the FACTS survived the redraw, not the
+       wording — where you are, how far it runs, and one segment per week with the published ones
+       marked — because the whole point of rule 2 is that the facts are the part that matters. */
+    ok("it still says how far the rota reaches, and where you are in it",
+      /of 11/.test(box.textContent) && /to /.test(box.textContent), box.textContent.slice(0, 90));
+    ok("the horizon is a ribbon of one segment per week, not a paragraph",
+      box.querySelectorAll(".ahrib span").length === 11 && !/reaches|Everyone sees/.test(box.textContent));
+    ok("and the published weeks are the marked ones",
+      box.querySelectorAll(".ahrib span.live").length === 4);
+    ok("the week you are looking at is marked on the ribbon",
+      box.querySelectorAll(".ahrib span.now").length === 1);
+    win.document.querySelector("#ahToday").click();
+    ok("This week comes back to the start", !!grid.querySelector("td[data-date='" + MON + "']"));
 
     /* Editable, like the Pods grid — and by exactly the same code, which is what this asserts:
        a cell you can click and a badge you can pick up, in a week beyond the published edge. */
     const draftDay = addDays(MON, 56);
-    const cell = box.querySelector("td[data-pod='A'][data-date='" + draftDay + "'] .cell[data-d]");
+    api.setAheadWeek(addDays(MON, 56)); api.renderAhead();          // page to a draft week
+    const cell = grid.querySelector("td[data-pod='A'][data-date='" + draftDay + "'] .cell[data-d]");
     ok("draft weeks are editable, not a read-only preview", !!cell && cell.dataset.k === "A");
     ok("and carry the same drag handles as the Pods grid",
-      !!box.querySelector("td[data-pod='A'][data-date='" + draftDay + "'] .cell[draggable='true']"));
+      !!grid.querySelector("td[data-pod='A'][data-date='" + draftDay + "'] .cell[draggable='true']"));
 
     /* Re-running the algorithm on the draft weeks. The button releases hand-made placements past
        the published edge so the nightly sync can reallocate them — a hand-edit makes `cur` differ
@@ -547,9 +628,57 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
 
     /* A viewer who never got through the shield must not be able to reach this by any route. */
     win.sessionStorage.removeItem("consTeamUnlocked");
-    api.renderAhead();
+    api.setAheadWeek(addDays(MON, 56)); api.renderAhead();
     ok("locked out, Look ahead shows no names either",
-      !/TF/.test(win.document.querySelector("#aheadBox td[data-pod='A'][data-date='" + draftDay + "']").textContent));
+      !/TF/.test(grid.querySelector("td[data-pod='A'][data-date='" + draftDay + "']").textContent));
+  }
+
+  console.log("Naming a consultant needs no code change (project rule 1)");
+  {
+    /* Ali, 7 Aug: "new initials a way to add as new staff list. probably needs an attention pane
+       for admin". Until now INITIALS_MAP lived in consultant_rota.py, so somebody joining the rota
+       showed on the board as their initials until the Python was edited and redeployed — a plain
+       breach of rule 1, which says every functional thing must be editable from the front end by
+       an authorised user, never requiring code edits or repo access. */
+    const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
+    api.alloc.days[MON].cur.A = "ZZZ";              // somebody the code has never heard of
+    /* Names moved off Setup to a page of their own on 8 Aug. A panel that only appears when
+       something is wrong is a nag with nowhere to go when nothing is; Staff is somewhere you can
+       look at the list whenever you like. Setup is settings and nothing else now. */
+    api.showTab("staff");
+    const box = win.document.querySelector("#staffBox");
+    ok("the Staff page lists everyone the rota uses",
+      !!box.querySelector(".nmin[data-ini='ZZZ']"), box.textContent.slice(0, 80));
+    ok("an unnamed one is marked apart from the rest",
+      box.querySelector(".nmin[data-ini='ZZZ']").classList.contains("miss"));
+    api.showTab("setup");
+    ok("and Setup no longer carries the naming panel",
+      !win.document.querySelector("#setupBox .nmin[data-ini]"));
+    ok("the board shows them as initials until named", api.nameOf("ZZZ") === "ZZZ");
+
+    win.localStorage.setItem("consEditor", "TF");
+    await api.saveName("ZZZ", "Zara Zaman");
+    ok("naming them takes effect everywhere at once", api.nameOf("ZZZ") === "Zara Zaman");
+    ok("it is stored with the cover, not in the code", (api.alloc.names || {}).ZZZ === "Zara Zaman");
+    ok("and logged, so nobody wonders where the name came from",
+      /named as Zara Zaman/.test((api.cdata.log[0] || {}).msg || ""), (api.cdata.log[0]||{}).msg);
+    api.showTab("setup");
+    ok("the panel goes away once there is nobody left to name",
+      !win.document.querySelector("#setupBox .card.attn"));
+    ok("a named person becomes pickable as the editor", api.consList().includes("ZZZ"));
+
+    /* The sync writes days/map/fair/window/source and nothing else, so what is typed here has to
+       survive it. Asserted against cover_sync.py itself rather than by simulating a run. */
+    const sync = fs.readFileSync(path.join(__dirname, "..", "..", "allocate-pull", "cover_sync.py"), "utf8");
+    const keys = (sync.match(/ALLOC_KEYS = \(([^)]*)\)/) || [])[1] || "";
+    ok("the sync cannot overwrite names — it is not one of the keys it writes",
+      !/["']names["']/.test(keys), keys.trim());
+    const page = fs.readFileSync(PAGE, "utf8");
+    ok("but the page counts names as a legitimate cover key, not a stray",
+      /COVER_ONLY = \[[^\]]*"names"/.test(page));
+    /* A correction must beat the code, or a name the sync has wrong could never be fixed here. */
+    api.alloc.map.QQ = "Wrong Name"; api.alloc.names.QQ = "Right Name";
+    ok("a name typed here overrides one the code got wrong", api.nameOf("QQ") === "Right Name");
   }
 
   console.log("The change log is drawn by the shared code, and styled for it");
@@ -563,33 +692,146 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
        replaced, and without this the suite reads that quotation as the rule still being there —
        which it promptly did. A test that cannot tell code from prose about code is worse than no
        test, because it fails loudest exactly when someone has documented their reasoning. */
+    /* WHAT THIS BLOCK IS ACTUALLY TESTING, restated 6 Aug after Ali pulled me up on it:
+       "Parity has nothing to do with the residents page." He is right. Cover and the resident
+       board share core.js and core.css and NOTHING else — the read-only resident rota is there to
+       overlay residents onto pods and has no bearing on any of this. So an assertion of the form
+       "Cover still has the same CSS rule the resident page has" is testing a relationship that
+       does not exist, and it was doing real harm: it compared against tests/resident-fixture.html,
+       a frozen snapshot already 100KB out of date, so it could pass while the thing it claimed to
+       check was false.
+       The contract that DOES exist is between the shared renderer and the stylesheet. logPanel()
+       emits a fixed set of class names; something must style them; and after 6 Aug that something
+       is core.css, where the renderer lives. These assertions read the class names out of core.js
+       itself, so they cannot drift from what is actually emitted. */
     const decomment = s => s.replace(/\/\*[\s\S]*?\*\//g, "");
     const css = decomment(fs.readFileSync(PAGE, "utf8"));
-    const rescss = decomment(fs.readFileSync(RESIDENT, "utf8"));
+    const corecss = decomment(fs.readFileSync(CORE_CSS, "utf8"));
+    const corejs = fs.readFileSync(CORE_JS, "utf8");
+
     ok("the log is drawn by core.js's logPanel, not a second copy here",
       /logPanel\(/.test(css) && !/function logPanel/.test(css));
-    /* The killer: logPanel builds each entry as a <tr>, and display:flex on a table row throws
-       away every column width the shared code sets. */
+
+    /* THE SAVE KEY. The live copy of this folder's k.js had drifted to holding the two READ keys
+       and no cover SAVE key, so Cover showed the rota perfectly and could not write a single edit.
+       The site serves a complete k.js at its root; the page now borrows it rather than keeping a
+       second copy of a secret that can drift. These assert the guard rails on that: live host
+       only, missing-key only, and — the important one — that pulling in the site-wide keys still
+       does not give this page any way to write the RESIDENT rota. */
+    const src0 = fs.readFileSync(PAGE, "utf8");
+    ok("it falls back to the site-wide keys when its own copy has no cover save key",
+      /__POD_KEYS \|\| \{\}\)\.cs/.test(src0) && /src="\/k\.js/.test(src0));
+    ok("...but only on the live host, so staging can never gain a save key",
+      /location\.hostname === LIVE_HOST/.test(src0));
+    ok("...and still never reads the resident save key, whatever k.js contains",
+      !/\bK\.s\b/.test(src0) && !/q\.get\("s"\)/.test(src0));
+
+    /* THE CACHE-BUSTER MUST MOVE WHEN THE SHARED FILES DO. Moving the log rules into core.css on
+       6 Aug while leaving ?v= alone meant every browser holding the old core.css kept using it —
+       a stylesheet with no log rules in it — so the page shipped looking exactly as broken as
+       before the fix. Nothing in the HTML gives that away, which makes it wretched to debug. This
+       asserts the two are at least consistent with each other and not still on the old stamp. */
+    const raw = fs.readFileSync(PAGE, "utf8");
+    const vers = [...raw.matchAll(/core\.(?:css|js)\?v=([0-9a-z-]+)/g)].map(m => m[1]);
+    ok("core.css and core.js are asked for at the same version", vers.length === 2 && vers[0] === vers[1], vers.join(" vs "));
+    ok("that version is not the pre-6-Aug one, now that core.css has changed",
+      vers[0] !== "20260731-02", vers[0]);
+
+    /* Derived from the source, not typed here — a hand-written list is the same duplication one
+       level up, and would go stale the same way the stylesheet did. */
+    const emitted = new Set();
+    for (const m of corejs.matchAll(/(?:class: *"|className *= *")([a-z][a-zA-Z -]*)"/g))
+      m[1].split(/\s+/).forEach(c => c && emitted.add(c));
+    for (const c of ["logrow", "loghead", "logfrom"]) {
+      ok("core.js still emits ." + c + " — the class these rules are written for", emitted.has(c));
+      ok("core.css styles ." + c + ", so the renderer's markup is never unstyled",
+        new RegExp("\\." + c + "[ .:{,]").test(corecss));
+    }
+
+    /* The three that had drifted. Each was a selector pointing at markup core.js no longer emits,
+       so the rule simply never applied — and the worst of them applied a flex layout to a <tr>,
+       throwing away every column width the shared code sets. */
     ok("logrow is not forced to flex — it is a table row",
-      !/\.logrow\{[^}]*display:flex/.test(css), (css.match(/\.logrow\{[^}]*\}/) || [""])[0]);
-    ok("the timestamp selector matches what core.js emits (.t, not .lt)",
-      /\.logrow \.t\{/.test(css) && !/\.logrow \.lt\{/.test(css));
-    ok("the day-heading count selector matches too (span, not b)",
-      /\.loghead span\{/.test(css) && !/\.loghead b\{/.test(css));
-    for (const rule of [".logrow{", ".logrow .t{", ".loghead span{", ".logrow.auto{"])
-      ok("matches the resident board rule for " + rule.replace("{", ""),
-        css.includes(rule) && rescss.includes(rule));
-    ok("dead selectors for controls that no longer exist are gone",
-      !/\.segbtn\{/.test(css) && !/\.logbar\{/.test(css));
-    /* .empty is scoped here on purpose — unscoped it would pad all 35 pod cells. */
-    ok("the log's empty state is scoped to the log, not to every empty pod cell",
-      /#logBox \.empty\{/.test(css) && !/^\.empty\{/m.test(css));
+      !/\.logrow\{[^}]*display:flex/.test(corecss + css));
+    ok("the timestamp rule targets .t, and the stale .lt is gone",
+      /\.logrow \.t\{/.test(corecss) && !/\.logrow \.lt\{/.test(corecss + css));
+    /* The count in a day heading: core.js appends a bare <span>, so a rule keyed on <b> — which
+       is what this page had — could never apply. Asserted against core.js so that if the renderer
+       ever changes the element, this fails rather than the styling silently vanishing again. */
+    ok("the day-heading count is a span in core.js, and the rule says span",
+      /\.loghead span\{/.test(corecss) && !/\.loghead b\{/.test(corecss + css) &&
+      /class: *"loghead" *\}[\s\S]{0,120}?__el\("span"/.test(corejs));
+
+    /* The page keeps ONLY what its own container needs. If a bare .logrow reappears here, the
+       shared rules are being duplicated back into the page and the drift is starting again. */
+    ok("the page no longer carries the shared log rules itself",
+      !/^\.logrow\{/m.test(css) && !/^\.loghead\{/m.test(css));
+    ok("what it does keep is scoped to its own container",
+      /#logBox \.empty\{/.test(css) && /#logBox tr\{display:grid/.test(css) && !/^\.empty\{/m.test(css));
+    /* `.segbtn` came BACK on 8 Aug and is no longer dead — the feedback dialog's Problem /
+       Suggestion / Question picker is a segmented control, the same one the resident board uses.
+       Left in the test as a live selector rather than deleted, so the pair still says something:
+       .segbtn must exist because something uses it, .logbar must not because nothing does. */
+    ok("the segmented control is styled, because the feedback dialog uses one",
+      /\.segbtn\{/.test(css) && /\.segbtn\.on\{/.test(css));
+    ok("dead selectors for controls that no longer exist are still gone", !/\.logbar\{/.test(css));
+    ok("the Menu back button is hidden by default and revealed only on a phone",
+      /\.tpback\{display:none/.test(css) && /\.tpback\{display:flex\}/.test(css) &&
+      css.indexOf(".tpback{display:flex}") > css.indexOf("@media(max-width:760px)"));
+  }
+
+  console.log("The log carries STRUCTURED detail, so it draws pods not sentences");
+  {
+    /* Ali, 6 Aug: "nice coloured pod letter styling and things missing." The columns were empty
+       because nothing this page wrote carried `d` — core.js falls back to parsing the message
+       text with regexes written for the RESIDENT board's phrasings, which ours never matched, and
+       every row landed in the "one wide cell, no invented columns" branch. No amount of CSS could
+       have fixed that, which is why matching the stylesheet three times did not. */
+    const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
+    win.localStorage.setItem("consEditor", "TF");
+    const day = addDays(MON, 1);
+
+    await api.applySwap(day, "A", "B");
+    const sw = api.cdata.log.slice(0, 2);
+    ok("a pod swap writes one row per person, not one row for the pair", sw.length === 2 &&
+      sw[0].d && sw[1].d && sw[0].d.subj !== sw[1].d.subj, JSON.stringify(sw.map(e => e.d)));
+    ok("each carries the pods it moved between",
+      sw.every(e => e.d.act === "move" && "ABCDE".includes(e.d.from) && "ABCDE".includes(e.d.to)),
+      JSON.stringify(sw.map(e => e.d)));
+    ok("and they are genuinely the two halves of one swap",
+      sw[0].d.from === sw[1].d.to && sw[0].d.to === sw[1].d.from);
+
+    await api.applyEdit(day, "C", "ZZ");
+    const ed = api.cdata.log.slice(0, 2);
+    ok("replacing a consultant logs BOTH the arrival and the departure", ed.length === 2 &&
+      ed.some(e => e.d && e.d.to === "C") && ed.some(e => e.d && e.d.from === "C"),
+      JSON.stringify(ed.map(e => e.d)));
+
+    /* A COD handover moves no one between pods, so it must NOT invent a From and a To. */
+    await api.applyEdit(day, "cod", "ZZ");
+    ok("a COD handover stays a plain sentence — no invented pod columns", !api.cdata.log[0].d);
+
+    /* The point of all of it: the rendered row carries pod chips, not an empty column. */
+    win.renderLog();
+    const chips = [...win.document.querySelectorAll("#logBox tr.logrow td")]
+      .flatMap(td => [...td.querySelectorAll("span")])
+      .filter(s => /^[A-E]$/.test(s.textContent.trim()) && /background:/.test(s.getAttribute("style") || ""));
+    ok("the log now renders coloured pod letters", chips.length > 0, chips.length + " pod chips");
+    ok("the Person column is filled in, not blank",
+      [...win.document.querySelectorAll("#logBox tr.logrow")]
+        .some(r => (r.children[1] || {}).textContent && r.children[1].textContent.trim().length > 0));
+    ok("a From cell that has a pod in it gets the arrow hook",
+      !!win.document.querySelector("#logBox td.logfrom"));
   }
 
   console.log("Combined fairness page");
   {
     const { win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
-    ok("the Totals tab is gone — one combined page", !win.document.querySelector("#tab-staff") && !win.document.querySelector("aside button[data-tab='staff']"));
+    /* The old Totals tab merged into Fairness. #tab-staff exists again, but it is the Staff page
+       now — a rota-team page, so it must not appear in the PUBLIC nav. */
+    ok("the Totals tab is gone — one combined page",
+      !win.document.querySelector("aside button[data-tab='staff']") &&
+      !!win.document.querySelector("#teamPanel button[data-tab='staff']"));
     const heads = [...win.document.querySelectorAll("#fairBox table.fair th")].map(x => x.textContent.trim());
     ok("fairness table carries A&B, C&D, % neuro AND the staffing counts",
       ["A&B","C&D","% neuro","Pods/wk","On call","COD","Fairfield"].every(k => heads.some(hh => hh.includes(k))), heads.join(" | "));
@@ -723,8 +965,9 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
        ever since — a test that describes a UI nobody built is worse than no test, because the
        red is dismissed on sight. Rewritten 4 Aug against what is actually on the page. */
     const sels = [...win.document.querySelectorAll("#logBox select")];
+    /* 6, not 5, since 9 Aug: Group by gained Person alongside When changed and Rota day. */
     ok("both controls are on the page and neither needs a sentence to explain it",
-      sels.length === 2 && sels.reduce((n, s2) => n + s2.options.length, 0) === 5,
+      sels.length === 2 && sels.reduce((n, s2) => n + s2.options.length, 0) === 6,
       sels.length + " controls, " + sels.reduce((n, s2) => n + s2.options.length, 0) + " options");
     ok("the software's own changes are marked apart from a person's",
       win.document.querySelectorAll("#logBox .logrow.auto").length === 1);
@@ -768,6 +1011,244 @@ const KEYS = { r:"https://flow/read", s:"https://flow/save", cr:"https://flow/cr
       use(2, "past") && win.document.querySelectorAll("#logBox .logrow").length === 1 &&
       win.document.querySelectorAll("#logBox .logrow.auto").length === 1,
       win.document.querySelectorAll("#logBox .logrow").length + " rows");
+  }
+
+  console.log("The pills line up down the column");
+  {
+    /* Ali, 8 Aug: "its annoyinh to my eyes the 18 and COD pills dont quite align". They followed
+       the initials, and initials are 2-4 characters, so the badge moved with the name. jsdom does
+       no layout, so this asserts the thing that MAKES them align rather than the alignment itself:
+       the name box is a fixed width, so whatever is next to it starts at the same place. */
+    const css = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8")
+      .split("<style>")[1].split("</style>")[0];
+    const cellRule = (css.match(/\n\.cell\{[^}]*\}/) || [""])[0];
+    ok("the name box is a fixed width, so the pill beside it cannot wander",
+      /min-width:\s*3\.5rem/.test(cellRule), cellRule.slice(0, 90));
+    ok("and neither pill can stretch or shrink to spoil it",
+      /\.codpill\{[^}]*flex:0 0 auto/.test(css) && /\.finpill\{[^}]*flex:0 0 auto/.test(css));
+    /* Only ever one pill per cell — COD suppresses the finish-time pill — so there is no second
+       thing that could push the first one sideways. */
+    const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
+    const cells = [...win.document.querySelectorAll("#weekGrid .cellwrap")];
+    ok("a cell never carries two pills, which would move one of them",
+      cells.every(c => c.querySelectorAll(".codpill, .finpill").length <= 1),
+      Math.max(...cells.map(c => c.querySelectorAll(".codpill, .finpill").length)) + " at most");
+    ok("and the pill always follows the name, never precedes it",
+      cells.filter(c => c.querySelector(".codpill, .finpill"))
+           .every(c => c.firstElementChild.classList.contains("cell")));
+  }
+
+  console.log("The attention page");
+  {
+    /* Work waiting for a person, separate from the log. The distinction that matters is between an
+       item you can dismiss and one you cannot: hiding "this day has an empty pod" does not staff
+       the pod, so those items have no dismiss button at all and clear only when the thing is
+       actually done (Ali, 8 Aug: "Is there a way to clear them?"). */
+    const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
+    const D = addDays(MON, 2);
+    api.showTab("attn");
+    ok("with nothing outstanding it says so rather than showing an empty list",
+      /Nothing needs you/.test(win.document.querySelector("#attnBox").textContent));
+    ok("and the menu carries no badge",
+      win.document.querySelector("#attnBadge").textContent === "");
+
+    api.alloc.days[D].alert = { gone: ["TF", "JRG"], new: ["VG"] };
+    api.showTab("attn");
+    const rows = win.document.querySelectorAll("#attnBox .attnrow");
+    ok("a day the sync could not resolve turns up as an item", rows.length === 1);
+    ok("...and says who went and who came, in names not codes",
+      /came off the rota/.test(rows[0].textContent) && /came on/.test(rows[0].textContent),
+      rows[0].textContent.trim().slice(0, 90));
+    ok("it cannot simply be dismissed — that would hide an unstaffed pod",
+      !rows[0].querySelector(".attnack"));
+    ok("but it can be answered deliberately, by a named person",
+      !!rows[0].querySelector(".attnalt"));
+    ok("the menu badge counts it", win.document.querySelector("#attnBadge").textContent === "1");
+
+    /* Fixing the day clears the flag THERE AND THEN. The sync clears it too, but the sync runs
+       overnight, and amber that outlives its cause teaches people to ignore amber. */
+    win.localStorage.setItem("consEditor", "TF");
+    api.alloc.days[D].alert = { gone: ["TF"], new: ["VG"] };
+    await api.applyEdit(D, "A", "VG");
+    ok("putting the right person on clears the flag immediately, not overnight",
+      !api.alloc.days[D].alert);
+
+    api.alloc.days[D].alert = { gone: ["TF", "JRG"], new: ["VG", "RTP"] };
+    await api.applyEdit(D, "A", "VG");
+    ok("half a job leaves it flagged", !!api.alloc.days[D].alert);
+  }
+
+  console.log("Setup is settings, and every one of them is a control");
+  {
+    /* Rule 1: every functional thing editable from the front end. These four were constants in the
+       code or in the Python, which meant a deploy to change them. */
+    const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
+    win.localStorage.setItem("consEditor", "TF");
+    api.showTab("setup");
+    const box = win.document.querySelector("#setupBox");
+    ok("published weeks is a control, not a constant", !!box.querySelector("#setPub"));
+    ok("the two balance numbers are controls too",
+      !!box.querySelector("#setCap") && !!box.querySelector("#setHard"));
+    ok("and the sync can be asked for by hand", !!box.querySelector("#btnSync"));
+    ok("the source panel gives times, not bare dates",
+      /last fetched/.test(box.textContent) && /workbook edited/.test(box.textContent));
+
+    /* The floor is the important half. Raising it publishes more, which is always safe; lowering it
+       would take back weeks people have already been shown. */
+    const pub = box.querySelector("#setPub");
+    pub.value = "6"; pub.dispatchEvent(new win.Event("change"));
+    await new Promise(r => setTimeout(r, 10));
+    ok("it can be raised", api.alloc.pubWeeks === 6, String(api.alloc.pubWeeks));
+    api.showTab("setup");
+    const pub2 = win.document.querySelector("#setPub");
+    pub2.value = "2"; pub2.dispatchEvent(new win.Event("change"));
+    await new Promise(r => setTimeout(r, 10));
+    ok("but never below what has already been shown", api.alloc.pubWeeks === 6, String(api.alloc.pubWeeks));
+
+    /* Removing the last reset address would recreate the lockout the whole mechanism exists to
+       prevent. */
+    api.alloc.admins = ["only.one@nhs.net"];
+    api.showTab("setup");
+    win.document.querySelector(".adminrm").click();
+    await new Promise(r => setTimeout(r, 10));
+    ok("the last reset address cannot be removed", (api.alloc.admins || []).length === 1);
+  }
+
+  /* Ali, 8 Aug: "on some of the cover rota team bits boxes are poorly rendeerd and incosistent use
+     of tabling, just make all look bettter and high end." Look is not usually a thing to assert
+     on, but the two CAUSES are, and both were the kind of fault that comes back the moment
+     somebody adds a control or a column without thinking about it. */
+  console.log("\nThe shielded pages are drawn, not left to the browser");
+  {
+    const css = fs.readFileSync(PAGE, "utf8");
+
+    /* A control has to be styled because it IS a control, not because whoever added it remembered
+       a class. Every bare input and select on this page was browser-default until 8 Aug. */
+    ok("the form control is styled on the element, so a new one is right without being told",
+      /(^|\n)input,select,textarea\{/.test(css));
+    ok("...and .nmin no longer carries a second, drifting copy of it",
+      /\.nmin\{flex:1;min-width:190px\}/.test(css));
+    ok("the select's arrow is drawn rather than left to the platform",
+      /select\{[^}]*background-image:url\("data:image\/svg\+xml/.test(css));
+    ok("the pod-cell picker keeps its own tighter size", /select\.cellsel\{/.test(css));
+
+    /* THE actual tabling bug. core.js draws the log table `table-layout:fixed`, and fixed layout
+       reads column widths from the FIRST row only — the header. The header carried none, so five
+       columns of wildly different content were given a fifth of the page each and the percentages
+       on the body cells were never looked at. If these widths are ever removed the table silently
+       goes back to five equal columns, which is exactly how it looked when Ali photographed it. */
+    ok("the change log's widths sit on the header, which is where fixed layout reads them",
+      /#logBox th:nth-child\(1\)\{width:/.test(css) && /#logBox th:nth-child\(5\)\{width:/.test(css));
+    ok("From and To meet in the middle, so a move reads as one fact",
+      /#logBox td\.logfrom\{text-align:right/.test(css));
+
+    /* And the panel that started it: it names both of the two things Cover reads. The render suite
+       asserts the words; this asserts the figures are real ones off the store rather than dashes. */
+    const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
+    api.showTab("setup");
+    const t = win.document.querySelector("#setupBox").textContent;
+    ok("Setup names the resident rota as a source in its own right", /Resident rota/.test(t));
+    ok("...and says it cannot be written to", /cannot\s+write to it/.test(t.replace(/\s+/g, " ")));
+    ok("...with a reach that is the end of the last week, not its Monday",
+      /reaches to/.test(t));
+  }
+
+  /* A backup that only works when nobody has the folder open is not a backup (Ali, 8 Aug: "thats
+     an issue"). The job now writes beside a locked file instead of losing the night — and says so
+     here, because a spare copy nobody knows about is one tidy-up from being no copy at all. */
+  console.log("\nA backup that had to go somewhere else says so");
+  {
+    const { api, win } = await loadPage({ url: TEST, testMode: true, keys: KEYS });
+    api.showTab("attn");
+    const before = win.document.querySelector("#attnBox").textContent;
+    ok("a normal night raises nothing about the backup", !/backup/i.test(before));
+
+    api.data.backupSpare = { name: "CCU-pods-Sat (could not replace, 00:05).xlsx",
+                                 at: new Date().toISOString(), why: "locked for shared use" };
+    api.renderAttn();
+    const after = win.document.querySelector("#attnBox").textContent;
+    ok("a spare copy is raised on Attention", /could not replace the usual file/.test(after));
+    ok("...and names the file, so it can be found", /CCU-pods-Sat \(could not replace/.test(after));
+    ok("...and says the usual copy is older than it looks",
+      /a day older than it looks/.test(after));
+    /* If this could be ticked off the folder ends up with nine files and nobody knowing which is
+       the rota. It clears itself on the first night that can write the usual name. */
+    const row = [...win.document.querySelectorAll(".attnrow")]
+      .find(r => /could not replace/.test(r.textContent));
+    ok("...and cannot be dismissed while it is still true", !row.querySelector(".attnack"));
+    ok("...and it counts on the menu badge", api.attnCount() > 0);
+  }
+
+  /* Ali, 8 Aug: "it also needs the feedback page and button just identical to residents (visually
+     and functionally)." "Identical" is the assertion worth making, so several of these compare
+     Cover's source against the RESIDENT board's rather than against a value typed in here — if
+     either drifts, this goes red, which is the only way a promise like that survives. */
+  console.log("\nFeedback, the same on both boards");
+  {
+    const css = fs.readFileSync(PAGE, "utf8");
+    const res = fs.readFileSync(RESIDENT_PAGE, "utf8");
+
+    ok("the button is open to everyone, in the top bar, not behind the shield",
+      /id="btnFeedback"/.test(css) && css.indexOf('id="btnFeedback"') < css.indexOf('id="tab-rota"'));
+    ok("...with the resident board's pulse, values and all",
+      /#btnFeedback\{position:relative;border-color:#c7cdf2/.test(css) &&
+      /@keyframes fbpulse\{0%\{box-shadow:0 0 0 0 rgba\(76,93,214,\.45\)/.test(css));
+    ok("...and the same icon path, so it is recognisably the same button",
+      /M20 15\.5a2\.5 2\.5 0 01-2\.5 2\.5H8l-4 3V6\.5A2\.5 2\.5 0 016\.5 4h11A2\.5 2\.5 0 0120 6\.5z/.test(css));
+    ok("the page listing what people sent is behind the shield",
+      /TEAM_TABS = \[[^\]]*"feedback"/.test(css));
+    ok("the ask is for the trial and then stops", /if \(!trialOn\(\)\) \$\("#btnFeedback"\)\.style\.display = "none"/.test(css));
+    ok("...ending on the same day as the resident board's trial",
+      (css.match(/TRIAL_END = "([\d-]+)"/) || [])[1] === (res.match(/TRIAL_END = "([\d-]+)"/) || [])[1]);
+    ok("the three kinds of message are the resident board's three",
+      /\[\["Problem","Something's wrong"\],\["Suggestion","An idea"\],\["Question","A question"\]\]/.test(css));
+
+    const { api, win, cposts, lastPayload } = await loadPage({ url: LIVE, testMode: false, keys: KEYS });
+
+    /* The dialog. Not a screenshot comparison — the parts, in the order the resident one has them. */
+    api.feedbackDialog();
+    const m = win.document.querySelector("#modal");
+    ok("the dialog opens", win.document.querySelector("#modalBg").style.display === "flex");
+    ok("...with three kinds to choose from", m.querySelectorAll(".segbtn").length === 3);
+    ok("...a message box", !!m.querySelector("textarea"));
+    ok("...and a name field that is optional",
+      (m.querySelector("input[type=text]") || {}).placeholder === "Optional");
+
+    /* Nothing is sent when the message is empty — an empty report wastes the sender's goodwill and
+       tells the reader nothing. */
+    const before = cposts.length;
+    [...m.querySelectorAll("button")].find(b => b.textContent === "Send").click();
+    await new Promise(r => setTimeout(r, 30));
+    ok("an empty message sends nothing", cposts.length === before);
+    ok("...and leaves the dialog open so it can be typed into",
+      win.document.querySelector("#modalBg").style.display === "flex");
+
+    /* It writes to the COVER store, which is the only file this page has a key for. */
+    const ok1 = await api.sendFeedback({ t: new Date().toISOString(), kind: "Problem",
+                                         name: "", msg: "Pod C looks wrong on Thursday" });
+    ok("feedback is saved", ok1 === true);
+    ok("...into the cover store, the only file this page can write",
+      cposts.length > before && /csave/i.test(cposts[cposts.length - 1]));
+    const sent = await lastPayload();
+    ok("...as an entry with the message, kind and time",
+      sent.feedback[0].msg === "Pod C looks wrong on Thursday" && sent.feedback[0].kind === "Problem");
+    ok("...and anonymous really is anonymous — no name recorded unless typed",
+      sent.feedback[0].name === "" && !("who" in sent.feedback[0]));
+    ok("...and it never touches the resident rota", !sent.staff && !sent.weeks);
+
+    /* Reading it. Unread first, cleared by opening the page — the same as the resident board, where
+       a button to mark it read was a second thing to remember for no gain. */
+    ok("an unread message counts", api.unreadFeedback() === 1);
+    api.showTab("feedback");
+    ok("the page shows it", /Pod C looks wrong on Thursday/.test(win.document.querySelector("#fbList").textContent));
+    ok("...and opening the page is what marks it read", api.unreadFeedback() === 0);
+    ok("...and the count on the rail goes quiet",
+      !win.document.querySelector("#tabFbCount").classList.contains("on"));
+
+    api.setCdata(Object.assign({}, api.cdata, { feedback: [] }));
+    api.renderFeedback();
+    ok("with nothing sent yet it says so rather than showing an empty box",
+      /Nothing yet/.test(win.document.querySelector("#fbList").textContent));
   }
 
   console.log("\n" + (fail ? "=== " + pass + " passed, " + fail + " failed ===" : "=== " + pass + " passed, 0 failed ==="));
