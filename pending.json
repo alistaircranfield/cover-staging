@@ -1,9 +1,21 @@
 {
- "generated": "2026-08-09T19:46:58.889862+00:00",
- "build": "bab91f5",
+ "generated": "2026-08-10T09:16:41.203445+00:00",
+ "build": "7f16f78",
  "liveBuild": "82a668f",
- "count": 53,
+ "count": 55,
  "changes": [
+  {
+   "sha": "7f16f78",
+   "who": "alistaircranfield",
+   "when": "2026-08-10T10:16:30+01:00",
+   "msg": "Phone layout, table scroll pane, and one height for the button bar"
+  },
+  {
+   "sha": "6f3a355",
+   "who": "github-actions[bot]",
+   "when": "2026-08-09T19:46:58Z",
+   "msg": "What is pending: regenerated from git, not typed"
+  },
   {
    "sha": "bab91f5",
    "who": "alistaircranfield",
