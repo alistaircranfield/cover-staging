@@ -1,9 +1,21 @@
 {
- "generated": "2026-08-10T09:20:23.721863+00:00",
- "build": "cd73db1",
- "liveBuild": "82a668f",
- "count": 57,
+ "generated": "2026-08-10T14:52:29.291176+00:00",
+ "build": "dec24c2",
+ "liveBuild": "6b59ab9",
+ "count": 59,
  "changes": [
+  {
+   "sha": "dec24c2",
+   "who": "alistaircranfield",
+   "when": "2026-08-10T15:52:16+01:00",
+   "msg": "Hide the day strip on desktop, which I never actually wrote"
+  },
+  {
+   "sha": "05aaf2f",
+   "who": "github-actions[bot]",
+   "when": "2026-08-10T09:20:23Z",
+   "msg": "What is pending: regenerated from git, not typed"
+  },
   {
    "sha": "cd73db1",
    "who": "alistaircranfield",
